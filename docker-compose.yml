@@ -1,0 +1,43 @@
+services:
+
+  # --- Postgres container ---
+  db:
+    image: postgres:16-alpine        # Alpine = even smaller image
+    environment:
+      POSTGRES_USER: ghguser
+      POSTGRES_PASSWORD: ghgpassword
+      POSTGRES_DB: ghgdb
+    volumes:
+      # Named volume: Postgres data persists between `docker compose down` / `up` cycles.
+      # Without this, your database is wiped every time you stop the container.
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Expose 5432 to your host machine so you can connect with a DB client (e.g. DBeaver)
+      # Format is "host_port:container_port"
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ghguser -d ghgdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- FastAPI app container ---
+  app:
+    build: .                         # Build from the Dockerfile in this directory
+    ports:
+      - "8000:8000"
+    environment:
+      # This is how the app finds Postgres. Note "db" — Docker Compose creates
+      # an internal DNS so containers can reach each other by service name.
+      DATABASE_URL: postgresql://ghguser:ghgpassword@db:5432/ghgdb
+      CSV_PATH: /data/sample_usage.csv
+    volumes:
+      # Mount our local data/ folder into the container at /data
+      # This means you can swap out the CSV without rebuilding the image.
+      - ./data:/data
+    depends_on:
+      db:
+        condition: service_healthy   # Wait for Postgres to be ready before starting the app
+
+volumes:
+  postgres_data:
