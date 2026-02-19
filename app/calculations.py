@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import List, Dict, Any
+from typing import Dict, Any
 
 KG_TO_LBS = 2.20462
 
