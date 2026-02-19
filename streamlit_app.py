@@ -123,6 +123,7 @@ if electric_df.empty and gas_df.empty:
 # --- Resolution toggle ---
 resolution = st.radio("Time resolution", ["15 min", "Hourly", "Daily"], horizontal=True)
 
+st.subheader(f"kg CO\u2082e emitted, {resolution} resolution")
 
 # --- Aggregate electric data ---
 def aggregate_electric(df: pd.DataFrame, res: str) -> pd.DataFrame:
@@ -134,9 +135,116 @@ def aggregate_electric(df: pd.DataFrame, res: str) -> pd.DataFrame:
     df.index = df.index.tz_convert("America/Los_Angeles")
     if res == "15 min":
         return df.reset_index()
-    rule = "1h" if res == "Hourly" else "1D"
-    agg = df.resample(rule).agg({"kwh": "sum", "co2e_kg": "sum", "emissions_factor_kg_per_kwh": "mean"})
+    rules = {"Hourly": "1h", "Daily": "1D", "Weekly": "W"}
+    agg = df.resample(rules[res]).agg({"kwh": "sum", "co2e_kg": "sum", "emissions_factor_kg_per_kwh": "mean"})
     return agg.reset_index()
+
+
+# Monday Jan 3 2000, timezone-naive reference anchor for profile x-axes
+REF_WEEK_START = pd.Timestamp("2000-01-03")
+
+
+def daily_profile(df: pd.DataFrame, res: str) -> pd.DataFrame:
+    """Average electric values by time-of-day slot across all days in the data."""
+    if df.empty:
+        return df
+    df = df.copy().set_index("timestamp")
+    df.index = df.index.tz_convert("America/Los_Angeles")
+    if res == "Hourly":
+        df = df.resample("1h").agg({"kwh": "sum", "co2e_kg": "sum", "emissions_factor_kg_per_kwh": "mean"})
+    elif res == "Daily":
+        df = df.resample("1D").agg({"kwh": "sum", "co2e_kg": "sum", "emissions_factor_kg_per_kwh": "mean"})
+    df["slot"] = df.index.hour * 60 + df.index.minute
+    grouped = df.groupby("slot")[["kwh", "co2e_kg", "emissions_factor_kg_per_kwh"]].mean()
+    grouped["timestamp"] = REF_WEEK_START + pd.to_timedelta(grouped.index, unit="min")
+    return grouped.reset_index(drop=True)
+
+
+def weekly_profile(df: pd.DataFrame, res: str) -> pd.DataFrame:
+    """Average electric values by day-of-week (and time slot) across all weeks in the data."""
+    if df.empty:
+        return df
+    df = df.copy().set_index("timestamp")
+    df.index = df.index.tz_convert("America/Los_Angeles")
+    if res == "Hourly":
+        df = df.resample("1h").agg({"kwh": "sum", "co2e_kg": "sum", "emissions_factor_kg_per_kwh": "mean"})
+    elif res == "Daily":
+        df = df.resample("1D").agg({"kwh": "sum", "co2e_kg": "sum", "emissions_factor_kg_per_kwh": "mean"})
+    df["slot"] = df.index.dayofweek * 1440 + df.index.hour * 60 + df.index.minute
+    grouped = df.groupby("slot")[["kwh", "co2e_kg", "emissions_factor_kg_per_kwh"]].mean()
+    grouped["timestamp"] = REF_WEEK_START + pd.to_timedelta(grouped.index, unit="min")
+    return grouped.reset_index(drop=True)
+
+
+def gas_weekly_profile(df: pd.DataFrame) -> pd.DataFrame:
+    """Average gas usage by day-of-week."""
+    if df.empty:
+        return df
+    df = df.copy().set_index("date")
+    df["dow"] = df.index.dayofweek
+    grouped = df.groupby("dow")[["therms", "co2_kg"]].mean()
+    grouped["date"] = REF_WEEK_START + pd.to_timedelta(grouped.index, unit="D")
+    return grouped.reset_index(drop=True)
+
+
+def make_summary_fig(elec: pd.DataFrame, gas: pd.DataFrame, res: str) -> go.Figure:
+    has_gas = not gas.empty
+    use_bars = res == "Daily"
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.12,
+        specs=[[{"secondary_y": False}], [{"secondary_y": True}]],
+    )
+    if not elec.empty:
+        if use_bars:
+            fig.add_trace(
+                go.Bar(x=elec["timestamp"], y=elec["co2e_kg"],
+                       name="Electric CO\u2082e (kg)", marker_color="black", showlegend=False),
+                row=1, col=1,
+            )
+        else:
+            fig.add_trace(
+                go.Scatter(x=elec["timestamp"], y=elec["co2e_kg"],
+                           name="Electric CO\u2082e (kg)", line=dict(color="black"),
+                           fill="tozeroy", fillcolor="rgba(128,128,128,0.15)", showlegend=False),
+                row=1, col=1,
+            )
+    if has_gas:
+        fig.add_trace(
+            go.Bar(x=gas["date"], y=gas["co2_kg"],
+                   name="Gas CO\u2082 (kg)", marker_color="#ff7f0e", showlegend=False),
+            row=1, col=1,
+        )
+    if not elec.empty and has_gas:
+        fig.update_layout(barmode="stack")
+    if not elec.empty:
+        if use_bars:
+            fig.add_trace(
+                go.Bar(x=elec["timestamp"], y=elec["kwh"],
+                       name="Electricity (kWh)", marker_color="#aec7e8", showlegend=False),
+                row=2, col=1, secondary_y=False,
+            )
+        else:
+            fig.add_trace(
+                go.Scatter(x=elec["timestamp"], y=elec["kwh"],
+                           name="Electricity (kWh)", line=dict(color="#aec7e8"),
+                           fill="tozeroy", fillcolor="rgba(174,199,232,0.3)", showlegend=False),
+                row=2, col=1, secondary_y=False,
+            )
+        fig.add_trace(
+            go.Scatter(x=elec["timestamp"], y=elec["emissions_factor_kg_per_kwh"],
+                       name="Carbon Intensity (kg CO\u2082e/kWh)",
+                       line=dict(color="green"), mode="lines", showlegend=False),
+            row=2, col=1, secondary_y=True,
+        )
+    fig.update_yaxes(title_text="CO\u2082e (kg)", row=1, col=1)
+    fig.update_yaxes(title_text="kWh", row=2, col=1, secondary_y=False)
+    if not elec.empty:
+        fig.update_yaxes(title_text="kg CO\u2082e/kWh", row=2, col=1, secondary_y=True)
+    fig.update_layout(height=400, hovermode="x unified", margin=dict(t=10))
+    return fig
 
 
 elec = aggregate_electric(electric_df, resolution)
@@ -144,11 +252,6 @@ gas = gas_df.copy() if not gas_df.empty else gas_df
 
 # Gas data is only shown at daily resolution
 has_gas = not gas.empty and resolution == "Daily"
-
-# --- Gas usage toggle ---
-show_gas_usage = False
-if has_gas:
-    show_gas_usage = st.toggle("Show gas usage (therms) instead of electricity (kWh)")
 
 # --- Build combined figure with shared x-axis ---
 fig = make_subplots(
@@ -168,9 +271,10 @@ if resolution in ("15 min", "Hourly"):
                 x=elec["timestamp"],
                 y=elec["co2e_kg"],
                 name="Electric CO\u2082e (kg)",
-                line=dict(color="#1f77b4"),
+                line=dict(color="black"),
                 fill="tozeroy",
-                fillcolor="rgba(31,119,180,0.15)",
+                fillcolor="rgba(128,128,128,0.15)",
+                legendrank=1,
             ),
             row=1,
             col=1,
@@ -182,7 +286,8 @@ else:  # Daily
                 x=elec["timestamp"],
                 y=elec["co2e_kg"],
                 name="Electric CO\u2082e (kg)",
-                marker_color="#1f77b4",
+                marker_color="black",
+                legendrank=1,
             ),
             row=1,
             col=1,
@@ -194,6 +299,7 @@ else:  # Daily
                 y=gas["co2_kg"],
                 name="Gas CO\u2082 (kg)",
                 marker_color="#ff7f0e",
+                legendrank=2,
             ),
             row=1,
             col=1,
@@ -202,52 +308,38 @@ else:  # Daily
         fig.update_layout(barmode="stack")
 
 # --- Row 2: Usage + Carbon Intensity ---
-if show_gas_usage:
+if not elec.empty:
     fig.add_trace(
         go.Bar(
-            x=gas["date"],
-            y=gas["therms"],
-            name="Gas (therms)",
-            marker_color="#ff7f0e",
+            x=elec["timestamp"],
+            y=elec["kwh"],
+            name="Electricity (kWh)",
+            marker_color="#aec7e8",
+            legendrank=3,
         ),
         row=2,
         col=1,
         secondary_y=False,
     )
-else:
-    if not elec.empty:
-        fig.add_trace(
-            go.Bar(
-                x=elec["timestamp"],
-                y=elec["kwh"],
-                name="Electricity (kWh)",
-                marker_color="#aec7e8",
-            ),
-            row=2,
-            col=1,
-            secondary_y=False,
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=elec["timestamp"],
-                y=elec["emissions_factor_kg_per_kwh"],
-                name="Carbon Intensity (kg CO\u2082e/kWh)",
-                line=dict(color="#d62728", dash="dot"),
-                mode="lines",
-            ),
-            row=2,
-            col=1,
-            secondary_y=True,
-        )
+    fig.add_trace(
+        go.Scatter(
+            x=elec["timestamp"],
+            y=elec["emissions_factor_kg_per_kwh"],
+            name="Carbon Intensity (kg CO\u2082e/kWh)",
+            line=dict(color="green"),
+            mode="lines",
+            legendrank=4,
+        ),
+        row=2,
+        col=1,
+        secondary_y=True,
+    )
 
 # --- Axis labels ---
 fig.update_yaxes(title_text="CO\u2082e (kg)", row=1, col=1)
-if show_gas_usage:
-    fig.update_yaxes(title_text="Therms", row=2, col=1, secondary_y=False)
-else:
-    fig.update_yaxes(title_text="kWh", row=2, col=1, secondary_y=False)
-    if not elec.empty:
-        fig.update_yaxes(title_text="kg CO\u2082e/kWh", row=2, col=1, secondary_y=True)
+fig.update_yaxes(title_text="kWh", row=2, col=1, secondary_y=False)
+if not elec.empty:
+    fig.update_yaxes(title_text="kg CO\u2082e/kWh", row=2, col=1, secondary_y=True)
 
 fig.update_layout(
     height=700,
@@ -256,3 +348,20 @@ fig.update_layout(
 )
 
 st.plotly_chart(fig, use_container_width=True)
+
+# --- Typical daily and weekly profiles ---
+st.divider()
+col_daily, col_weekly = st.columns(2)
+
+with col_daily:
+    st.markdown("**Day-level average**")
+    fig_day = make_summary_fig(daily_profile(electric_df, resolution), pd.DataFrame(), resolution)
+    fig_day.update_xaxes(tickformat="%H:%M")
+    st.plotly_chart(fig_day, use_container_width=True)
+
+with col_weekly:
+    st.markdown("**Week-level average**")
+    gas_wp = gas_weekly_profile(gas_df) if resolution == "Daily" else pd.DataFrame()
+    fig_week = make_summary_fig(weekly_profile(electric_df, resolution), gas_wp, resolution)
+    fig_week.update_xaxes(tickformat="%a", dtick=86400000)
+    st.plotly_chart(fig_week, use_container_width=True)

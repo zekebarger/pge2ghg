@@ -187,12 +187,11 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 
 **Create a front-end** with streamlit
 
-- user can upload multiple electric and gas files
-- after processing a file with the API, aggregate it to hourly and daily resolution
-- session state tracks all results processed so far
-- display a time series plot of CO2e from all processed files
-  - user can toggle time resolution (15 mins, hourly, daily)
-  - use line plots for 15min / hourly data, bar plot for daily
-  - if resolution is daily and gas data exists, include it in the stacked bar plot
-- display another plot whose x-axis is linked to the first one showing electricity usage on the primary y-axis and carbon intensity on the second y-axis
-  - if resolution is daily, user can toggle this plot to display gas usage on the first y-axis instead
+- test multiple uploads
+- removing uploads should do something
+- test longer input files
+- test gas/electric date range mismatch
+- highlight top 10% of days / hours etc.
+- add sidebar of instructions
+- look up cleanpower sf
+- buy and use domain
