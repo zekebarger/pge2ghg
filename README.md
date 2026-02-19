@@ -188,7 +188,6 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 **Create a front-end** with streamlit
 
 - include sample data
-- removing uploads should do something
 - highlight top 10% of days / hours etc.
 - add sidebar of instructions
 - look up cleanpower sf
