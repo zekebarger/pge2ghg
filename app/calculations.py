@@ -7,6 +7,8 @@ KG_TO_LBS = 2.20462
 #   lbs/MWh ÷ 2.20462 (lbs/kg) ÷ 1000 (kWh/MWh) = kg/kWh
 #   which simplifies to lbs/MWh ÷ 2204.62
 LBS_PER_MWH_TO_KG_PER_KWH = 2204.62
+# EPA natural gas emissions factor: 53.12 kg CO2/MMBtu * 0.1 MMBtu/therm
+THERMS_TO_KG_CO2 = 5.312  # kg CO2 per therm
 
 
 def parse_pge_csv(file_bytes: bytes) -> pd.DataFrame:
@@ -117,5 +119,63 @@ def build_result(df: pd.DataFrame) -> Dict[str, Any]:
         "total_co2e_kg": round(df["co2e_kg"].sum(), 4),
         "total_co2e_lbs": round(df["co2e_lbs"].sum(), 4),
         "avg_emissions_factor": round(df["emissions_factor_kg_per_kwh"].mean(), 6),
+        "records": records,
+    }
+
+
+def parse_pge_gas_csv(file_bytes: bytes) -> pd.DataFrame:
+    """
+    Parse a PG&E natural gas CSV export into a DataFrame of (date, therms).
+
+    Uses the same dynamic header scan as parse_pge_csv. Only the DATE column
+    is used — timestamps in gas CSVs are unreliable (e.g. DST rows).
+    """
+    text = file_bytes.decode("utf-8", errors="replace")
+
+    lines = text.splitlines()
+    header_line = None
+    for i, line in enumerate(lines):
+        if line.startswith("TYPE,"):
+            header_line = i
+            break
+
+    if header_line is None:
+        raise ValueError("Could not find 'TYPE,' header row in the uploaded CSV.")
+
+    csv_body = "\n".join(lines[header_line:])
+    df = pd.read_csv(io.StringIO(csv_body))
+
+    df = df[df["TYPE"] == "Natural gas usage"].copy()
+    if df.empty:
+        raise ValueError("No 'Natural gas usage' rows found in the uploaded CSV.")
+
+    result = pd.DataFrame({
+        "date": pd.to_datetime(df["DATE"]).dt.date,
+        "therms": pd.to_numeric(df["USAGE (therms)"], errors="coerce"),
+    })
+
+    if result["therms"].isna().any():
+        raise ValueError("Some 'USAGE (therms)' values could not be parsed as numbers.")
+
+    return result.reset_index(drop=True)
+
+
+def calculate_gas_emissions(df: pd.DataFrame) -> pd.DataFrame:
+    """Multiply therms by the EPA fixed natural gas emissions factor."""
+    df = df.copy()
+    df["co2_kg"] = df["therms"] * THERMS_TO_KG_CO2
+    df["co2_lbs"] = df["co2_kg"] * KG_TO_LBS
+    return df
+
+
+def build_gas_result(df: pd.DataFrame) -> Dict[str, Any]:
+    """Compute aggregate stats and per-day records for natural gas emissions."""
+    records = df[["date", "therms", "co2_kg", "co2_lbs"]].to_dict(orient="records")
+    return {
+        "records_processed": len(df),
+        "total_therms": round(df["therms"].sum(), 4),
+        "total_co2_kg": round(df["co2_kg"].sum(), 4),
+        "total_co2_lbs": round(df["co2_lbs"].sum(), 4),
+        "emissions_factor_kg_per_therm": THERMS_TO_KG_CO2,
         "records": records,
     }

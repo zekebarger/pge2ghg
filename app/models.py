@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from typing import List
 from sqlalchemy import Column, Integer, Float, DateTime
 from pydantic import BaseModel
@@ -43,3 +43,19 @@ class ProcessingResult(BaseModel):
     total_co2e_lbs: float
     avg_emissions_factor: float
     records: List[EmissionsRecord]
+
+
+class GasRecord(BaseModel):
+    date: date
+    therms: float
+    co2_kg: float
+    co2_lbs: float
+
+
+class GasProcessingResult(BaseModel):
+    records_processed: int
+    total_therms: float
+    total_co2_kg: float
+    total_co2_lbs: float
+    emissions_factor_kg_per_therm: float
+    records: List[GasRecord]

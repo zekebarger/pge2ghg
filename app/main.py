@@ -6,12 +6,15 @@ from typing import List
 import pandas as pd
 
 from app.database import engine, get_db, Base
-from app.models import WattTimeRecord, WattTimeRecordOut, ProcessingResult
+from app.models import WattTimeRecord, WattTimeRecordOut, ProcessingResult, GasProcessingResult
 from app.calculations import (
     parse_pge_csv,
     join_usage_with_intensity,
     calculate_emissions,
     build_result,
+    parse_pge_gas_csv,
+    calculate_gas_emissions,
+    build_gas_result,
 )
 from app import watttime
 
@@ -121,6 +124,25 @@ async def process_csv(file: UploadFile = File(...), db: Session = Depends(get_db
         result["total_co2e_lbs"],
     )
 
+    return result
+
+
+@app.post("/process_gas", response_model=GasProcessingResult)
+async def process_gas_csv(file: UploadFile = File(...)):
+    """Upload a PG&E natural gas CSV to calculate CO₂ emissions using the EPA fixed factor."""
+    file_bytes = await file.read()
+    logger.info("Received gas file: %s (%d bytes)", file.filename, len(file_bytes))
+    try:
+        df_usage = parse_pge_gas_csv(file_bytes)
+    except ValueError as e:
+        logger.error("Failed to parse PG&E gas CSV: %s", e)
+        raise HTTPException(status_code=400, detail=str(e))
+    logger.info("Parsed %d gas usage rows; %s to %s",
+                len(df_usage), df_usage["date"].min(), df_usage["date"].max())
+    df_result = calculate_gas_emissions(df_usage)
+    result = build_gas_result(df_result)
+    logger.info("Gas processing complete: %d records, %.4f therms, %.4f kg CO2",
+                result["records_processed"], result["total_therms"], result["total_co2_kg"])
     return result
 
 
