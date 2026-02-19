@@ -30,7 +30,7 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("Electric Usage")
     electric_files = st.file_uploader(
-        "Upload PG\u00e9E electric CSV(s)",
+        "Upload PG&E electric CSV(s)",
         type="csv",
         accept_multiple_files=True,
         key="electric_uploader",
@@ -39,7 +39,7 @@ with col1:
 with col2:
     st.subheader("Natural Gas Usage")
     gas_files = st.file_uploader(
-        "Upload PG\u00e9E gas CSV(s)",
+        "Upload PG&E gas CSV(s)",
         type="csv",
         accept_multiple_files=True,
         key="gas_uploader",
@@ -70,6 +70,13 @@ for f in electric_files or []:
                 )
                 st.session_state.processed_electric.add(file_id)
                 st.success(f"Loaded {len(records)} records from {f.name}")
+            except requests.exceptions.HTTPError as e:
+                detail = ""
+                try:
+                    detail = e.response.json().get("detail", "")
+                except Exception:
+                    pass
+                st.error(f"Error processing {f.name}: {e}" + (f"\n\n{detail}" if detail else ""))
             except Exception as e:
                 st.error(f"Error processing {f.name}: {e}")
 
@@ -96,6 +103,13 @@ for f in gas_files or []:
                 )
                 st.session_state.processed_gas.add(file_id)
                 st.success(f"Loaded {len(records)} records from {f.name}")
+            except requests.exceptions.HTTPError as e:
+                detail = ""
+                try:
+                    detail = e.response.json().get("detail", "")
+                except Exception:
+                    pass
+                st.error(f"Error processing {f.name}: {e}" + (f"\n\n{detail}" if detail else ""))
             except Exception as e:
                 st.error(f"Error processing {f.name}: {e}")
 
@@ -103,7 +117,7 @@ electric_df = st.session_state.electric_df
 gas_df = st.session_state.gas_df
 
 if electric_df.empty and gas_df.empty:
-    st.info("Upload one or more PG\u00e9E CSV files above to get started.")
+    st.info("Upload one or more PG&E CSV files above to get started.")
     st.stop()
 
 # --- Resolution toggle ---
@@ -115,11 +129,13 @@ def aggregate_electric(df: pd.DataFrame, res: str) -> pd.DataFrame:
     if df.empty:
         return df
     df = df.set_index("timestamp")
+    # Convert UTC timestamps to Pacific time so that x-axis labels and bucket
+    # boundaries align with local time rather than UTC.
+    df.index = df.index.tz_convert("America/Los_Angeles")
     if res == "15 min":
         return df.reset_index()
     rule = "1h" if res == "Hourly" else "1D"
-    agg = df.resample(rule).agg({"kwh": "sum", "co2e_kg": "sum"})
-    agg["emissions_factor_kg_per_kwh"] = agg["co2e_kg"] / agg["kwh"].replace(0, float("nan"))
+    agg = df.resample(rule).agg({"kwh": "sum", "co2e_kg": "sum", "emissions_factor_kg_per_kwh": "mean"})
     return agg.reset_index()
 
 

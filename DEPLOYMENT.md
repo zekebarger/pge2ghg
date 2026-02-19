@@ -209,6 +209,26 @@ After deployment, the command prints a service URL. Open it in a browser to veri
 
 ---
 
+## Step 9: Redeploying the UI After Code Changes
+
+Rebuild and push the image, then redeploy:
+
+```bash
+docker build --platform linux/amd64 \
+  -f Dockerfile.streamlit \
+  -t us-central1-docker.pkg.dev/YOUR_PROJECT_ID/pge2ghg/ui:latest .
+
+docker push us-central1-docker.pkg.dev/YOUR_PROJECT_ID/pge2ghg/ui:latest
+
+gcloud run deploy pge2ghg-ui \
+  --image us-central1-docker.pkg.dev/YOUR_PROJECT_ID/pge2ghg/ui:latest \
+  --region us-central1
+```
+
+The second `gcloud run deploy` reuses all previously set environment variables and flags.
+
+---
+
 ## Notes
 
 **Cold starts:** The first request after a period of inactivity takes ~2–3s (Cloud Run container starting up). Neon also has a ~1s cold start if the database has been idle. Both warm up on the first request and subsequent requests are fast.
