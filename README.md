@@ -15,10 +15,14 @@ pge2ghg/
 │   ├── database.py       # DB connection and session management
 │   ├── watttime.py       # WattTime API client + DB caching
 │   └── calculations.py   # CSV parsing and emissions logic (pure functions)
+├── tests/
+│   ├── conftest.py       # Shared fixtures
+│   └── test_calculations.py
 ├── data/                 # Drop PG&E CSV files here (mounted into the container)
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
+├── requirements-dev.txt  # Dev dependencies (pytest)
 └── .env.example
 ```
 
@@ -120,6 +124,8 @@ lbs CO₂/MWh ÷ 2204.62 = kg CO₂/kWh
 
 PG&E exports 15-minute intervals. Each interval is matched to the most recent WattTime 5-minute reading at or before its timestamp using an asof merge.
 
+Negative kWh intervals (solar export to the grid) are supported and produce negative CO₂e values, representing an emissions credit.
+
 The region is hardcoded to `CAISO_NORTH` (Northern California, PG&E's territory).
 
 ---
@@ -137,10 +143,6 @@ With the containers running, you can connect from your host machine:
 Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 
 ---
-
-## Next steps
-- Allow negative kWh values in the uploaded csv for households with solar PV
-- **Unit tests**
 
 ## Future goals
 - allow xlsx input format
