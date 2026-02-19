@@ -184,5 +184,11 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 ---
 
 ## Next steps
-- **Deploy to the cloud** — this docker-compose setup translates directly to AWS ECS, Google Cloud Run, or Fly.io
-- **Access through a web app** (probably streamlit)
+
+**Create a front-end** with streamlit
+
+- include sample data
+- highlight top 10% of days / hours etc.
+- add sidebar of instructions
+- look up cleanpower sf
+- buy and use domain

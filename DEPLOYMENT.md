@@ -166,6 +166,69 @@ The second `gcloud run deploy` reuses all previously set environment variables a
 
 ---
 
+## Step 8: Deploy Streamlit Frontend
+
+Build and push a second Docker image using `Dockerfile.streamlit`:
+
+```bash
+docker build --platform linux/amd64 \
+  -f Dockerfile.streamlit \
+  -t us-central1-docker.pkg.dev/YOUR_PROJECT_ID/pge2ghg/ui:latest \
+  .
+
+docker push us-central1-docker.pkg.dev/YOUR_PROJECT_ID/pge2ghg/ui:latest
+```
+
+Deploy to Cloud Run as a separate service:
+
+```bash
+gcloud run deploy pge2ghg-ui \
+  --image us-central1-docker.pkg.dev/YOUR_PROJECT_ID/pge2ghg/ui:latest \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --port 8501 \
+  --memory 512Mi \
+  --cpu 1 \
+  --min-instances 0 \
+  --max-instances 3 \
+  --timeout 3600 \
+  --set-env-vars "API_URL=https://YOUR_FASTAPI_SERVICE_URL"
+```
+
+Replace:
+- `YOUR_PROJECT_ID` — your Google Cloud project ID
+- `YOUR_FASTAPI_SERVICE_URL` — the Cloud Run service URL printed after Step 5 (e.g. `pge2ghg-xxxx-uc.a.run.app`)
+
+**Key flags:**
+- `--timeout 3600` — required for Streamlit's long-lived WebSocket connections
+- `--port 8501` — Streamlit's default port
+- `--min-instances 0` — scales to zero when idle
+
+After deployment, the command prints a service URL. Open it in a browser to verify the UI loads and can call the FastAPI backend.
+
+---
+
+## Step 9: Redeploying the UI After Code Changes
+
+Rebuild and push the image, then redeploy:
+
+```bash
+docker build --platform linux/amd64 \
+  -f Dockerfile.streamlit \
+  -t us-central1-docker.pkg.dev/YOUR_PROJECT_ID/pge2ghg/ui:latest .
+
+docker push us-central1-docker.pkg.dev/YOUR_PROJECT_ID/pge2ghg/ui:latest
+
+gcloud run deploy pge2ghg-ui \
+  --image us-central1-docker.pkg.dev/YOUR_PROJECT_ID/pge2ghg/ui:latest \
+  --region us-central1
+```
+
+The second `gcloud run deploy` reuses all previously set environment variables and flags.
+
+---
+
 ## Notes
 
 **Cold starts:** The first request after a period of inactivity takes ~2–3s (Cloud Run container starting up). Neon also has a ~1s cold start if the database has been idle. Both warm up on the first request and subsequent requests are fast.
