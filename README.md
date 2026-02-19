@@ -187,10 +187,8 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 
 **Create a front-end** with streamlit
 
-- test multiple uploads
+- include sample data
 - removing uploads should do something
-- test longer input files
-- test gas/electric date range mismatch
 - highlight top 10% of days / hours etc.
 - add sidebar of instructions
 - look up cleanpower sf
