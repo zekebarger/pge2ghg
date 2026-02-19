@@ -214,7 +214,7 @@ def make_summary_fig(elec: pd.DataFrame, gas: pd.DataFrame, res: str) -> go.Figu
     if has_gas:
         fig.add_trace(
             go.Bar(x=gas["date"], y=gas["co2_kg"],
-                   name="Gas CO\u2082 (kg)", marker_color="#ff7f0e", showlegend=False),
+                   name="Gas CO\u2082 (kg)", marker_color="#d30000", showlegend=False),
             row=1, col=1,
         )
     if not elec.empty and has_gas:
@@ -274,7 +274,7 @@ if resolution in ("15 min", "Hourly"):
                 line=dict(color="black"),
                 fill="tozeroy",
                 fillcolor="rgba(128,128,128,0.15)",
-                legendrank=1,
+                legendrank=4,
             ),
             row=1,
             col=1,
@@ -287,7 +287,7 @@ else:  # Daily
                 y=elec["co2e_kg"],
                 name="Electric CO\u2082e (kg)",
                 marker_color="black",
-                legendrank=1,
+                legendrank=4,
             ),
             row=1,
             col=1,
@@ -298,8 +298,8 @@ else:  # Daily
                 x=gas["date"],
                 y=gas["co2_kg"],
                 name="Gas CO\u2082 (kg)",
-                marker_color="#ff7f0e",
-                legendrank=2,
+                marker_color="#d30000",
+                legendrank=3,
             ),
             row=1,
             col=1,
@@ -315,7 +315,7 @@ if not elec.empty:
             y=elec["kwh"],
             name="Electricity (kWh)",
             marker_color="#aec7e8",
-            legendrank=3,
+            legendrank=2,
         ),
         row=2,
         col=1,
@@ -328,7 +328,7 @@ if not elec.empty:
             name="Carbon Intensity (kg CO\u2082e/kWh)",
             line=dict(color="green"),
             mode="lines",
-            legendrank=4,
+            legendrank=1,
         ),
         row=2,
         col=1,
@@ -340,6 +340,15 @@ fig.update_yaxes(title_text="CO\u2082e (kg)", row=1, col=1)
 fig.update_yaxes(title_text="kWh", row=2, col=1, secondary_y=False)
 if not elec.empty:
     fig.update_yaxes(title_text="kg CO\u2082e/kWh", row=2, col=1, secondary_y=True)
+
+# Enforce legend order by controlling fig.data position
+_name_rank = {
+    "Electric CO\u2082e (kg)": 1,
+    "Gas CO\u2082 (kg)": 0,
+    "Electricity (kWh)": 2,
+    "Carbon Intensity (kg CO\u2082e/kWh)": 3,
+}
+fig.data = tuple(sorted(fig.data, key=lambda t: _name_rank.get(t.name, -1), reverse=True))
 
 fig.update_layout(
     height=700,
