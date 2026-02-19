@@ -1,6 +1,11 @@
 # GHG Emissions Tracker
 
-A FastAPI app that accepts a PG&E Green Button CSV upload, fetches time-varying marginal CO₂ intensity from the [WattTime](https://www.watttime.org/) API, calculates emissions for each 15-minute interval, and returns an aggregate summary. WattTime data is cached in PostgreSQL so repeat uploads covering the same date range don't hit the API again. Fully containerized with Docker.
+A FastAPI app that calculates CO₂ emissions from PG&E CSV exports. It supports two energy types:
+
+- **Electricity** — accepts a PG&E Green Button CSV, fetches time-varying marginal CO₂ intensity from the [WattTime](https://www.watttime.org/) API, and calculates emissions for each 15-minute interval. WattTime data is cached in PostgreSQL so repeat uploads covering the same date range don't hit the API again.
+- **Natural gas** — accepts a PG&E natural gas CSV and calculates daily CO₂ emissions using the EPA fixed factor (5.312 kg CO₂/therm). No API key or database required.
+
+Fully containerized with Docker.
 
 ---
 
@@ -16,8 +21,9 @@ pge2ghg/
 │   ├── watttime.py       # WattTime API client + DB caching
 │   └── calculations.py   # CSV parsing and emissions logic (pure functions)
 ├── tests/
-│   ├── conftest.py       # Shared fixtures
-│   └── test_calculations.py
+│   ├── conftest.py            # Shared fixtures
+│   ├── test_calculations.py
+│   └── test_gas_calculations.py
 ├── data/                 # Drop PG&E CSV files here (mounted into the container)
 ├── Dockerfile
 ├── docker-compose.yml
@@ -57,10 +63,10 @@ You should see Postgres start, then the FastAPI app connect to it.
 
 ## Using the API
 
-**Upload a PG&E CSV and get an emissions summary:**
+**Upload a PG&E electricity CSV and get an emissions summary:**
 ```bash
 curl -X POST http://localhost:8000/process \
-  -F "file=@data/your_pge_export.csv"
+  -F "file=@data/your_pge_electric_export.csv"
 ```
 
 This parses the uploaded PG&E Green Button CSV, fetches WattTime marginal intensity for the covered date range (only for intervals not already cached), and returns an aggregate summary. Nothing from the PG&E file is stored in the database.
@@ -73,6 +79,26 @@ Example response:
   "total_co2e_kg": 42.18,
   "total_co2e_lbs": 93.01,
   "avg_emissions_factor": 0.000135
+}
+```
+
+**Upload a PG&E natural gas CSV and get an emissions summary:**
+```bash
+curl -X POST http://localhost:8000/process_gas \
+  -F "file=@data/your_pge_gas_export.csv"
+```
+
+This parses the uploaded PG&E natural gas CSV and calculates daily CO₂ emissions using the EPA fixed factor. No WattTime API call or database write occurs.
+
+Example response:
+```json
+{
+  "records_processed": 31,
+  "total_therms": 16.77,
+  "total_co2_kg": 89.1082,
+  "total_co2_lbs": 196.4696,
+  "emissions_factor_kg_per_therm": 5.312,
+  "records": ["..."]
 }
 ```
 
@@ -109,7 +135,9 @@ docker compose down -v
 
 ---
 
-## The Calculation
+## The Calculations
+
+### Electricity
 
 ```
 CO₂e (kg) = kWh × emissions_factor (kg CO₂e / kWh)
@@ -127,6 +155,17 @@ PG&E exports 15-minute intervals. Each interval is matched to the most recent Wa
 Negative kWh intervals (solar export to the grid) are supported and produce negative CO₂e values, representing an emissions credit.
 
 The region is hardcoded to `CAISO_NORTH` (Northern California, PG&E's territory).
+
+### Natural Gas
+
+```
+CO₂ (kg) = therms × 5.312 kg CO₂/therm
+```
+
+Uses the EPA fixed emissions factor:
+53.12 kg CO₂/MMBtu × 0.1 MMBtu/therm
+= **5.312 kg CO₂/therm**.
+Only the DATE column from the gas CSV is used.
 
 ---
 
@@ -147,4 +186,3 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 ## Next steps
 - **Deploy to the cloud** — this docker-compose setup translates directly to AWS ECS, Google Cloud Run, or Fly.io
 - **Access through a web app** (probably streamlit)
-- **Include gas data** from a separate csv upload
