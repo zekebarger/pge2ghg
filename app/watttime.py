@@ -31,4 +31,7 @@ def get_historical(start, end):
     response = requests.get(url, headers=headers, params=params)
     response.raise_for_status()
     df = pd.DataFrame.from_dict(response.json()["data"])
+    # columns are point_time, value
+    # point time is a timestamp, like 2025-01-01T00:00:00+00:00
+    # value has units of CO2 lbs/MWh
     return df
