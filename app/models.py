@@ -1,40 +1,30 @@
-from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, DateTime
+from datetime import datetime, timezone
+from sqlalchemy import Column, Integer, Float, DateTime
 from pydantic import BaseModel
 from app.database import Base
 
 
 # --- SQLAlchemy Model ---
-# This defines the actual database table structure.
-class EmissionRecord(Base):
-    __tablename__ = "emission_records"
+# Caches raw WattTime marginal intensity data so we don't re-fetch the same
+# date ranges from the API on subsequent uploads.
+class WattTimeRecord(Base):
+    __tablename__ = "watttime_records"
 
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, nullable=False)
-    grid_region = Column(String, nullable=False)
-    kwh = Column(Float, nullable=False)
-    emissions_factor_kg_per_kwh = Column(Float, nullable=False)
-    co2e_kg = Column(Float, nullable=False)       # The calculated result
-    co2e_lbs = Column(Float, nullable=False)      # Convenience conversion
-    created_at = Column(DateTime, default=datetime.utcnow)
+    point_time = Column(DateTime(timezone=True), nullable=False, unique=True)
+    value_lbs_per_mwh = Column(Float, nullable=False)
+    fetched_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 # --- Pydantic Schemas ---
-# These control what data looks like going INTO and coming OUT OF the API.
-# Keeping them separate from the DB model is a FastAPI best practice —
-# it means you can change your DB schema without breaking your API contract.
-
-class EmissionRecordOut(BaseModel):
+class WattTimeRecordOut(BaseModel):
     id: int
-    timestamp: datetime
-    grid_region: str
-    kwh: float
-    emissions_factor_kg_per_kwh: float
-    co2e_kg: float
-    co2e_lbs: float
+    point_time: datetime
+    value_lbs_per_mwh: float
+    fetched_at: datetime
 
     class Config:
-        from_attributes = True  # Allows Pydantic to read SQLAlchemy model objects
+        from_attributes = True
 
 
 class ProcessingSummary(BaseModel):

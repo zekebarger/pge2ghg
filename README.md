@@ -16,11 +16,10 @@ ghg-tracker/
 │   ├── watttime.py       # collect data from WattTime
 │   └── calculations.py   # Emissions logic (pure functions, no DB)
 ├── data/
-│   ├── pge_example.csv   # Realistic input data
-│   └── sample_usage.csv  # Initial input data
+│   └── pge_example.csv   # Realistic input data
 ├── Dockerfile
+├── .env
 ├── docker-compose.yml
-├── secrets.yaml
 └── requirements.txt
 ```
 
@@ -82,7 +81,11 @@ docker compose down -v
 CO₂e (kg) = kWh × emissions_factor (kg CO₂e / kWh)
 ```
 
-The CSV uses a **marginal, time-varying emissions factor** (column: `emissions_factor_kg_per_kwh`). This changes hour-by-hour to reflect what generation source is actually serving load at that moment — more accurate than a single annual average. Real-world data for this comes from sources like [WattTime](https://www.watttime.org/) or [Electricity Maps](https://www.electricitymaps.com/).
+We use a **marginal, time-varying emissions factor**.
+This changes hour-by-hour to reflect what generation
+source is actually serving load at that moment — more
+accurate than a single annual average. Real-world data
+for this comes from  [WattTime](https://www.watttime.org/).
 
 ---
 
@@ -100,16 +103,6 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 
 ---
 
-## Next Steps
-
-- **Add a real CSV upload endpoint** — swap `POST /process` to accept a file via `UploadFile`
-- Create a parser to handle data exported from PG&E's website, like `pge_example.csv`
-- Instead of requiring the uploaded CSV to contain hourly intensity
-values, collect data from WattTime (CAISO north is free to access)
-  - login information is in `secrets.yaml`
-  - marginal intensity values can be downloaded 32 days at a time at 5min resolution
-- Don't store GHG emission results in the database. Instead, store intensity data
-from WattTime so that we can reuse data we've already accessed
 
 ## Future goals
 
