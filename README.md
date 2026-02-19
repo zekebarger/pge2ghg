@@ -139,10 +139,10 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 ---
 
 ## Next steps
-- Return the dataframe of results, not just the summary
-- **Logging** for better introspection
-- **Unit tests** of course
+- Allow negative kWh values in the uploaded csv for households with solar PV
+- **Unit tests**
 
 ## Future goals
+- allow xlsx input format
 - **Deploy to the cloud** — this docker-compose setup translates directly to AWS ECS, Google Cloud Run, or Fly.io
 - **Access through a web app** (probably streamlit)

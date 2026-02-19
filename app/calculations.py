@@ -108,12 +108,14 @@ def calculate_emissions(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def build_summary(df: pd.DataFrame) -> Dict[str, Any]:
-    """Compute aggregate stats across all processed rows."""
+def build_result(df: pd.DataFrame) -> Dict[str, Any]:
+    """Compute aggregate stats and per-interval records across all processed rows."""
+    records = df[["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg", "co2e_lbs"]].to_dict(orient="records")
     return {
         "records_processed": len(df),
         "total_kwh": round(df["kwh"].sum(), 4),
         "total_co2e_kg": round(df["co2e_kg"].sum(), 4),
         "total_co2e_lbs": round(df["co2e_lbs"].sum(), 4),
         "avg_emissions_factor": round(df["emissions_factor_kg_per_kwh"].mean(), 6),
+        "records": records,
     }

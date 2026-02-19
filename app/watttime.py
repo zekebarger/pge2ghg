@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from collections import deque
@@ -10,6 +11,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.models import WattTimeRecord
+
+logger = logging.getLogger(__name__)
 
 # WattTime API limits historical requests to 32 days per call
 MAX_CHUNK_DAYS = 32
@@ -27,6 +30,7 @@ def get_token() -> str:
     if _token is not None and _token_expiry is not None and datetime.now(timezone.utc) < _token_expiry:
         return _token
 
+    logger.info("Fetching new WattTime token")
     username = os.environ["WATTTIME_USER"]
     password = os.environ["WATTTIME_PASS"]
     rsp = requests.get(
@@ -55,6 +59,7 @@ def get_historical(start: datetime, end: datetime) -> pd.DataFrame:
             time.sleep(wait)
     _call_times.append(time.monotonic())
 
+    logger.info("Fetching WattTime historical data: %s to %s", start, end)
     token = get_token()
     url = "https://api.watttime.org/v3/historical"
     headers = {"Authorization": f"Bearer {token}"}
@@ -98,6 +103,7 @@ def fetch_and_store_intensity(db: Session, start_dt: datetime, end_dt: datetime)
         expected_slots = int((chunk_end - chunk_start).total_seconds() / 900)
         chunk_existing = sum(1 for t in existing_times if chunk_start <= t <= chunk_end)
         if chunk_existing >= expected_slots:
+            logger.info("Cache hit for chunk %s to %s, skipping API call", chunk_start, chunk_end)
             chunk_start = chunk_end
             continue
 
@@ -125,5 +131,6 @@ def fetch_and_store_intensity(db: Session, start_dt: datetime, end_dt: datetime)
         )
         db.execute(stmt)
         db.commit()
+        logger.info("Stored %d intensity rows for chunk %s to %s", len(rows), chunk_start, chunk_end)
 
         chunk_start = chunk_end

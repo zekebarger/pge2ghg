@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import List
 from sqlalchemy import Column, Integer, Float, DateTime
 from pydantic import BaseModel
 from app.database import Base
@@ -27,9 +28,18 @@ class WattTimeRecordOut(BaseModel):
         from_attributes = True
 
 
-class ProcessingSummary(BaseModel):
+class EmissionsRecord(BaseModel):
+    timestamp: datetime
+    kwh: float
+    emissions_factor_kg_per_kwh: float
+    co2e_kg: float
+    co2e_lbs: float
+
+
+class ProcessingResult(BaseModel):
     records_processed: int
     total_kwh: float
     total_co2e_kg: float
     total_co2e_lbs: float
     avg_emissions_factor: float
+    records: List[EmissionsRecord]
