@@ -1,0 +1,13 @@
+.venv/
+data/
+.env
+.git/
+.gitignore
+.DS_Store
+__pycache__/
+*.pyc
+tests/
+requirements-dev.txt
+docker-compose.yml
+*.md
+.idea/

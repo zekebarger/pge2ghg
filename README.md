@@ -144,7 +144,7 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 
 ---
 
-## Future goals
-- allow xlsx input format
+## Next steps
 - **Deploy to the cloud** — this docker-compose setup translates directly to AWS ECS, Google Cloud Run, or Fly.io
 - **Access through a web app** (probably streamlit)
+- **Include gas data** from a separate csv upload
