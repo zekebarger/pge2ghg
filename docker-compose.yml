@@ -4,9 +4,9 @@ services:
   db:
     image: postgres:16-alpine        # Alpine = even smaller image
     environment:
-      POSTGRES_USER: ghguser
-      POSTGRES_PASSWORD: ghgpassword
-      POSTGRES_DB: ghgdb
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       # Named volume: Postgres data persists between `docker compose down` / `up` cycles.
       # Without this, your database is wiped every time you stop the container.
@@ -16,7 +16,7 @@ services:
       # Format is "host_port:container_port"
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ghguser -d ghgdb"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -29,8 +29,9 @@ services:
     environment:
       # This is how the app finds Postgres. Note "db" — Docker Compose creates
       # an internal DNS so containers can reach each other by service name.
-      DATABASE_URL: postgresql://ghguser:ghgpassword@db:5432/ghgdb
-      CSV_PATH: /data/sample_usage.csv
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      WATTTIME_USER: ${WATTTIME_USER}
+      WATTTIME_PASS: ${WATTTIME_PASS}
     volumes:
       # Mount our local data/ folder into the container at /data
       # This means you can swap out the CSV without rebuilding the image.

@@ -1,11 +1,25 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+import logging
+
+from fastapi import FastAPI, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 from typing import List
-import os
+import pandas as pd
 
 from app.database import engine, get_db, Base
-from app.models import EmissionRecord, EmissionRecordOut, ProcessingSummary
-from app.calculations import load_csv, calculate_emissions, build_summary
+from app.models import WattTimeRecord, WattTimeRecordOut, ProcessingResult
+from app.calculations import (
+    parse_pge_csv,
+    join_usage_with_intensity,
+    calculate_emissions,
+    build_result,
+)
+from app import watttime
+
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
 
 # Create all tables on startup if they don't already exist.
 # In production you'd use a migration tool like Alembic instead,
@@ -14,11 +28,9 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="GHG Emissions Tracker",
-    description="Reads hourly electricity usage from CSV and calculates CO₂e emissions.",
-    version="1.0.0",
+    description="Upload a PG&E CSV and calculate CO₂e emissions using live WattTime marginal intensity data.",
+    version="2.0.0",
 )
-
-CSV_PATH = os.getenv("CSV_PATH", "/data/sample_usage.csv")
 
 
 @app.get("/health")
@@ -27,74 +39,123 @@ def health_check():
     return {"status": "ok"}
 
 
-@app.post("/process", response_model=ProcessingSummary)
-def process_csv(db: Session = Depends(get_db)):
+@app.post("/process", response_model=ProcessingResult)
+async def process_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
-    Reads the CSV at CSV_PATH, calculates hourly CO₂e emissions,
-    and writes each row as a record in Postgres.
+    Upload a PG&E Green Button CSV to calculate CO₂e emissions.
 
-    Note the `db: Session = Depends(get_db)` pattern — this is FastAPI's
-    dependency injection system. FastAPI calls get_db() for you, passes
-    the session in, and closes it when the request is done.
+    Flow:
+    1. Parse the uploaded PG&E CSV into 15-min (timestamp, kWh) intervals.
+    2. Determine the date range and fetch WattTime marginal intensity for it
+       (only hits the API for ranges not already cached in the DB).
+    3. Join usage with intensity data and compute emissions on the fly.
+    4. Return aggregate summary — nothing is stored except the WattTime cache.
     """
+    file_bytes = await file.read()
+    logger.info("Received file: %s (%d bytes)", file.filename, len(file_bytes))
+
     try:
-        df = load_csv(CSV_PATH)
-    except (FileNotFoundError, ValueError) as e:
+        df_usage = parse_pge_csv(file_bytes)
+    except ValueError as e:
+        logger.error("Failed to parse PG&E CSV: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
 
-    df = calculate_emissions(df)
+    logger.info(
+        "Parsed %d usage rows; date range %s to %s",
+        len(df_usage),
+        df_usage["timestamp"].min(),
+        df_usage["timestamp"].max(),
+    )
 
-    # Convert each DataFrame row into a SQLAlchemy model instance and save it
-    records = [
-        EmissionRecord(
-            timestamp=row["timestamp"],
-            grid_region=row["grid_region"],
-            kwh=row["kwh"],
-            emissions_factor_kg_per_kwh=row["emissions_factor_kg_per_kwh"],
-            co2e_kg=row["co2e_kg"],
-            co2e_lbs=row["co2e_lbs"],
+    # Determine the date range covered by the uploaded data
+    start_dt = df_usage["timestamp"].min().to_pydatetime()
+    end_dt = df_usage["timestamp"].max().to_pydatetime()
+
+    # Fetch and cache WattTime intensity for this range (no-ops for cached intervals)
+    logger.info("Fetching WattTime intensity for %s to %s", start_dt, end_dt)
+    try:
+        watttime.fetch_and_store_intensity(db, start_dt, end_dt)
+    except Exception as e:
+        logger.error("WattTime API error: %s", e)
+        raise HTTPException(status_code=502, detail=f"WattTime API error: {e}")
+
+    # Load matching intensity records from the DB
+    intensity_rows = (
+        db.query(WattTimeRecord)
+        .filter(
+            WattTimeRecord.point_time >= start_dt,
+            WattTimeRecord.point_time <= end_dt,
         )
-        for _, row in df.iterrows()
-    ]
+        .order_by(WattTimeRecord.point_time)
+        .all()
+    )
+    if not intensity_rows:
+        logger.error("No intensity data in DB for range %s to %s", start_dt, end_dt)
+        raise HTTPException(
+            status_code=502,
+            detail="No intensity data available for the uploaded date range.",
+        )
 
-    db.add_all(records)
-    db.commit()
+    logger.info("Loaded %d intensity records from DB", len(intensity_rows))
 
-    return build_summary(df)
+    df_intensity = pd.DataFrame(
+        [{"timestamp": r.point_time, "value_lbs_per_mwh": r.value_lbs_per_mwh} for r in intensity_rows]
+    )
+
+    try:
+        df_joined = join_usage_with_intensity(df_usage, df_intensity)
+    except ValueError as e:
+        logger.error("Failed to join usage with intensity: %s", e)
+        raise HTTPException(status_code=422, detail=str(e))
+
+    logger.info("Joined DataFrame has %d rows", len(df_joined))
+
+    df_result = calculate_emissions(df_joined)
+    result = build_result(df_result)
+
+    logger.info(
+        "Processing complete: %d records, %.4f kWh, %.4f kg CO2e, %.4f lbs CO2e",
+        result["records_processed"],
+        result["total_kwh"],
+        result["total_co2e_kg"],
+        result["total_co2e_lbs"],
+    )
+
+    return result
 
 
-@app.get("/emissions", response_model=List[EmissionRecordOut])
-def get_emissions(
-    region: str | None = Query(default=None, description="Filter by grid region"),
+@app.get("/intensity", response_model=List[WattTimeRecordOut])
+def get_intensity(
     limit: int = Query(default=100, le=1000),
     db: Session = Depends(get_db),
 ):
     """
-    Retrieve stored emission records, optionally filtered by grid region.
-    The `limit` parameter prevents accidentally returning thousands of rows.
+    Retrieve cached WattTime marginal intensity records.
+    These are populated automatically when you POST /process.
     """
-    query = db.query(EmissionRecord)
-    if region:
-        query = query.filter(EmissionRecord.grid_region == region)
-    return query.order_by(EmissionRecord.timestamp).limit(limit).all()
+    return db.query(WattTimeRecord).order_by(WattTimeRecord.point_time).limit(limit).all()
 
 
-@app.get("/emissions/summary")
-def get_summary(db: Session = Depends(get_db)):
-    """Return aggregate stats across all stored records."""
-    records = db.query(EmissionRecord).all()
-    if not records:
-        raise HTTPException(status_code=404, detail="No records found. Run POST /process first.")
+@app.get("/intensity/summary")
+def get_intensity_summary(db: Session = Depends(get_db)):
+    """Return coverage stats for cached WattTime intensity data."""
+    from sqlalchemy import func
 
-    total_kwh = sum(r.kwh for r in records)
-    total_co2e_kg = sum(r.co2e_kg for r in records)
+    row = db.query(
+        func.count(WattTimeRecord.id),
+        func.min(WattTimeRecord.point_time),
+        func.max(WattTimeRecord.point_time),
+    ).one()
+
+    count, earliest, latest = row
+    if not count:
+        raise HTTPException(
+            status_code=404,
+            detail="No intensity records found. Upload a PG&E CSV via POST /process first.",
+        )
 
     return {
-        "total_records": len(records),
-        "total_kwh": round(total_kwh, 4),
-        "total_co2e_kg": round(total_co2e_kg, 4),
-        "total_co2e_lbs": round(total_co2e_kg * 2.20462, 4),
-        "avg_emissions_factor": round(
-            sum(r.emissions_factor_kg_per_kwh for r in records) / len(records), 6
-        ),
+        "total_records": count,
+        "earliest_point_time": earliest,
+        "latest_point_time": latest,
     }

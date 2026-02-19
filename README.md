@@ -1,27 +1,29 @@
 # GHG Emissions Tracker
 
-A FastAPI app that reads hourly electricity usage from a CSV, calculates CO₂e emissions using time-varying grid emissions factors, and stores the results in PostgreSQL. Fully containerized with Docker.
+A FastAPI app that accepts a PG&E Green Button CSV upload, fetches time-varying marginal CO₂ intensity from the [WattTime](https://www.watttime.org/) API, calculates emissions for each 15-minute interval, and returns an aggregate summary. WattTime data is cached in PostgreSQL so repeat uploads covering the same date range don't hit the API again. Fully containerized with Docker.
 
 ---
 
 ## Project Structure
 
 ```
-ghg-tracker/
+pge2ghg/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py           # FastAPI routes
 │   ├── models.py         # SQLAlchemy table + Pydantic schemas
 │   ├── database.py       # DB connection and session management
-│   ├── watttime.py       # collect data from WattTime
-│   └── calculations.py   # Emissions logic (pure functions, no DB)
-├── data/
-│   ├── pge_example.csv   # Realistic input data
-│   └── sample_usage.csv  # Initial input data
+│   ├── watttime.py       # WattTime API client + DB caching
+│   └── calculations.py   # CSV parsing and emissions logic (pure functions)
+├── tests/
+│   ├── conftest.py       # Shared fixtures
+│   └── test_calculations.py
+├── data/                 # Drop PG&E CSV files here (mounted into the container)
 ├── Dockerfile
 ├── docker-compose.yml
-├── secrets.yaml
-└── requirements.txt
+├── requirements.txt
+├── requirements-dev.txt  # Dev dependencies (pytest)
+└── .env.example
 ```
 
 ---
@@ -29,46 +31,77 @@ ghg-tracker/
 ## Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
+- A [WattTime](https://www.watttime.org/) account (free tier works)
 
 ---
 
-## Running the App
+## Setup
 
-**1. Start both containers:**
+**1. Copy the example env file and fill in your credentials:**
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your WattTime username and password. The Postgres values can stay as-is for local development.
+
+**2. Start both containers:**
 ```bash
 docker compose up --build
 ```
-The `--build` flag tells Docker to (re)build the app image before starting.
-On first run this may take a minute while it downloads base images and installs dependencies.
+
+The `--build` flag tells Docker to (re)build the app image before starting. On first run this may take a minute while it downloads base images and installs dependencies.
 
 You should see Postgres start, then the FastAPI app connect to it.
 
-**2. Trigger CSV processing:**
+---
+
+## Using the API
+
+**Upload a PG&E CSV and get an emissions summary:**
 ```bash
-curl -X POST http://localhost:8000/process
-```
-This reads `data/sample_usage.csv`, calculates emissions, and writes to Postgres.
-
-**3. Query the stored results:**
-```bash
-# All records
-curl http://localhost:8000/emissions
-
-# Filter by region
-curl "http://localhost:8000/emissions?region=WECC"
-
-# Aggregate summary
-curl http://localhost:8000/emissions/summary
+curl -X POST http://localhost:8000/process \
+  -F "file=@data/your_pge_export.csv"
 ```
 
-**4. Explore the interactive API docs:**
+This parses the uploaded PG&E Green Button CSV, fetches WattTime marginal intensity for the covered date range (only for intervals not already cached), and returns an aggregate summary. Nothing from the PG&E file is stored in the database.
 
-Open http://localhost:8000/docs in your browser. FastAPI auto-generates a Swagger UI where you can call every endpoint interactively — no curl needed.
+Example response:
+```json
+{
+  "records_processed": 2880,
+  "total_kwh": 312.45,
+  "total_co2e_kg": 42.18,
+  "total_co2e_lbs": 93.01,
+  "avg_emissions_factor": 0.000135
+}
+```
 
-**5. Stop everything:**
+**Inspect the cached WattTime intensity data:**
+```bash
+# Most recent 100 records (default)
+curl http://localhost:8000/intensity
+
+# Up to 1000 records
+curl "http://localhost:8000/intensity?limit=1000"
+
+# Coverage summary (count, earliest, latest point_time)
+curl http://localhost:8000/intensity/summary
+```
+
+**Health check:**
+```bash
+curl http://localhost:8000/health
+```
+
+**Interactive API docs:**
+
+Open http://localhost:8000/docs in your browser. FastAPI auto-generates a Swagger UI where you can call every endpoint interactively — including uploading a file via the browser.
+
+**Stop everything:**
 ```bash
 docker compose down
 ```
+
 Your Postgres data persists in the `postgres_data` Docker volume. To wipe it too:
 ```bash
 docker compose down -v
@@ -82,7 +115,18 @@ docker compose down -v
 CO₂e (kg) = kWh × emissions_factor (kg CO₂e / kWh)
 ```
 
-The CSV uses a **marginal, time-varying emissions factor** (column: `emissions_factor_kg_per_kwh`). This changes hour-by-hour to reflect what generation source is actually serving load at that moment — more accurate than a single annual average. Real-world data for this comes from sources like [WattTime](https://www.watttime.org/) or [Electricity Maps](https://www.electricitymaps.com/).
+We use a **marginal, time-varying emissions factor** from WattTime's `co2_moer` signal (lbs CO₂/MWh). This changes every 5 minutes to reflect what generation source is actually serving load at that moment — more accurate than a single annual average.
+
+Unit conversion:
+```
+lbs CO₂/MWh ÷ 2204.62 = kg CO₂/kWh
+```
+
+PG&E exports 15-minute intervals. Each interval is matched to the most recent WattTime 5-minute reading at or before its timestamp using an asof merge.
+
+Negative kWh intervals (solar export to the grid) are supported and produce negative CO₂e values, representing an emissions credit.
+
+The region is hardcoded to `CAISO_NORTH` (Northern California, PG&E's territory).
 
 ---
 
@@ -100,19 +144,7 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 
 ---
 
-## Next Steps
-
-- **Add a real CSV upload endpoint** — swap `POST /process` to accept a file via `UploadFile`
-- Create a parser to handle data exported from PG&E's website, like `pge_example.csv`
-- Instead of requiring the uploaded CSV to contain hourly intensity
-values, collect data from WattTime (CAISO north is free to access)
-  - login information is in `secrets.yaml`
-  - marginal intensity values can be downloaded 32 days at a time at 5min resolution
-- Don't store GHG emission results in the database. Instead, store intensity data
-from WattTime so that we can reuse data we've already accessed
-
 ## Future goals
-
-- **Add Alembic** for proper database migrations
+- allow xlsx input format
 - **Deploy to the cloud** — this docker-compose setup translates directly to AWS ECS, Google Cloud Run, or Fly.io
-- **Swap the emissions factor** for live data from the WattTime or Electricity Maps API
+- **Access through a web app** (probably streamlit)
