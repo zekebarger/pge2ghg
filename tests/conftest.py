@@ -33,6 +33,19 @@ def sample_usage_df():
 
 
 @pytest.fixture
+def minimal_pge_gas_csv_bytes():
+    csv = (
+        "account_number,,,,,\n"
+        "Name,Test Account,,,,,\n"
+        "TYPE,DATE,START TIME,END TIME,USAGE (therms),COST,NOTES\n"
+        "Natural gas usage,2025-10-14,00:00,23:59,1.04,$2.76,\n"
+        "Natural gas usage,2025-10-15,00:00,23:59,0.00,$0.00,\n"
+        "Natural gas usage,2025-10-16,00:00,23:59,2.08,$5.52,\n"
+    )
+    return csv.encode("utf-8")
+
+
+@pytest.fixture
 def sample_intensity_df():
     """Intensity DataFrame aligned to the sample_usage_df timestamps."""
     timestamps = pd.to_datetime([
