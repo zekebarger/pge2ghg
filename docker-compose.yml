@@ -40,5 +40,17 @@ services:
       db:
         condition: service_healthy   # Wait for Postgres to be ready before starting the app
 
+  # --- Streamlit frontend ---
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      API_URL: http://app:8000
+    depends_on:
+      - app
+
 volumes:
   postgres_data:
