@@ -1,13 +1,15 @@
 # GHG Emissions Tracker
 
-A FastAPI + Streamlit app that calculates CO₂ emissions from PG&E CSV exports. It supports two energy types:
+**Live app:** [green-button-co2e.com](https://green-button-co2e.com)
 
-- **Electricity** — accepts a PG&E Green Button CSV, fetches time-varying marginal CO₂ intensity from the [WattTime](https://www.watttime.org/) API, and calculates emissions for each 15-minute interval. WattTime data is cached in PostgreSQL so repeat uploads covering the same date range don't hit the API again.
-- **Natural gas** — accepts a PG&E natural gas CSV and calculates daily CO₂ emissions using the EPA fixed factor (5.312 kg CO₂/therm). No API key or database required.
+A FastAPI + Streamlit app that calculates CO₂ emissions from 
+PG&E "Green Button" CSV exports. It supports two energy types:
+
+- **Electricity** — accepts a PG&E electricity usage CSV, fetches time-varying marginal CO₂ intensity from the [WattTime](https://www.watttime.org/) API, and calculates emissions for each 15-minute interval. WattTime data is cached in PostgreSQL so repeat uploads covering the same date range don't hit the API again.
+- **Natural gas** — accepts a PG&E natural gas usage CSV and calculates daily CO₂ emissions using the EPA fixed factor (5.312 kg CO₂/therm). No API key or database required.
 
 Fully containerized with Docker.
 
-**Live app:** [green-button-co2e.com](https://green-button-co2e.com)
 
 ---
 
