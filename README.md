@@ -1,11 +1,15 @@
 # GHG Emissions Tracker
 
-A FastAPI app that calculates CO₂ emissions from PG&E CSV exports. It supports two energy types:
+**Live app:** [green-button-co2e.com](https://green-button-co2e.com)
 
-- **Electricity** — accepts a PG&E Green Button CSV, fetches time-varying marginal CO₂ intensity from the [WattTime](https://www.watttime.org/) API, and calculates emissions for each 15-minute interval. WattTime data is cached in PostgreSQL so repeat uploads covering the same date range don't hit the API again.
-- **Natural gas** — accepts a PG&E natural gas CSV and calculates daily CO₂ emissions using the EPA fixed factor (5.312 kg CO₂/therm). No API key or database required.
+A FastAPI + Streamlit app that calculates CO₂ emissions from 
+PG&E "Green Button" CSV exports. It supports two energy types:
+
+- **Electricity** — accepts a PG&E electricity usage CSV, fetches time-varying marginal CO₂ intensity from the [WattTime](https://www.watttime.org/) API, and calculates emissions for each 15-minute interval. WattTime data is cached in PostgreSQL so repeat uploads covering the same date range don't hit the API again.
+- **Natural gas** — accepts a PG&E natural gas usage CSV and calculates daily CO₂ emissions using the EPA fixed factor (5.312 kg CO₂/therm). No API key or database required.
 
 Fully containerized with Docker.
+
 
 ---
 
@@ -15,21 +19,25 @@ Fully containerized with Docker.
 pge2ghg/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py           # FastAPI routes
-│   ├── models.py         # SQLAlchemy table + Pydantic schemas
-│   ├── database.py       # DB connection and session management
-│   ├── watttime.py       # WattTime API client + DB caching
-│   └── calculations.py   # CSV parsing and emissions logic (pure functions)
+│   ├── main.py                    # FastAPI routes
+│   ├── models.py                  # SQLAlchemy table + Pydantic schemas
+│   ├── database.py                # DB connection and session management
+│   ├── watttime.py                # WattTime API client + DB caching
+│   └── calculations.py            # CSV parsing and emissions logic (pure functions)
 ├── tests/
-│   ├── conftest.py            # Shared fixtures
+│   ├── conftest.py                # Shared fixtures
 │   ├── test_calculations.py
 │   └── test_gas_calculations.py
-├── data/                 # Drop PG&E CSV files here (mounted into the container)
-├── Dockerfile
+├── data/                          # Sample PG&E CSV files
+├── streamlit_app.py               # Streamlit UI
+├── co2_molecule.svg               # App icon
+├── Dockerfile                     # FastAPI container
+├── Dockerfile.streamlit           # Streamlit container
 ├── docker-compose.yml
 ├── requirements.txt
-├── requirements-dev.txt  # Dev dependencies (pytest)
-└── .env.example
+├── requirements-streamlit.txt
+├── requirements-dev.txt           # Dev dependencies (pytest)
+└── DEPLOYMENT.md                  # Cloud deployment guide
 ```
 
 ---
@@ -196,10 +204,13 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 
 A Streamlit front-end is included (`streamlit_app.py`). It is served as a separate container via `docker-compose.yml`.
 
-Upload one or more PG&E CSVs using the single file uploader — electric and gas files are detected automatically and routed to the correct pipeline. Both types can be uploaded together in one batch. Uploaded files are deduplicated within a session so re-selecting the same file is a no-op.
+Access it at **http://localhost:8501** while the containers are running (or at [green-button-co2e.com](https://green-button-co2e.com) for the hosted version).
 
----
-
-## Next steps
-
-- Highlight top 10% of days / hours etc.
+**Features:**
+- Upload one or more PG&E CSVs — electric and gas files are detected automatically and routed to the correct pipeline. Both types can be uploaded together in one batch.
+- Toggle between **15-minute, hourly, and daily** time resolution.
+- Main chart shows CO₂e emissions (top panel) and electricity usage + carbon intensity (bottom panel) over time. Gas CO₂ is stacked on top of electric CO₂e when daily resolution is selected.
+- **Day-level** and **week-level** average profile charts summarize typical usage patterns.
+- A sidebar explains how to export your data from PG&E and shows the supported CAISO_NORTH grid region on a map.
+- Uploaded files are deduplicated within a session so re-selecting the same file is a no-op.
+- An example data button loads sample March 2024 electric and gas files so you can explore the UI without uploading your own data.

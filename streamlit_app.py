@@ -9,6 +9,10 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
+API_TIMEOUT = 120  # seconds; WattTime fetches can be slow for long date ranges
+
+ELECTRIC_COLS = ["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
+GAS_COLS = ["date", "therms", "co2_kg"]
 
 _geojson_path = pathlib.Path(__file__).parent / "data" / "caiso_north.geojson"
 with open(_geojson_path) as f:
@@ -30,11 +34,9 @@ st.markdown("Upload PG&E 'Green Button' CSV files to visualize your CO\u2082e em
 
 # --- Session state ---
 if "electric_df" not in st.session_state:
-    st.session_state.electric_df = pd.DataFrame(
-        columns=["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
-    )
+    st.session_state.electric_df = pd.DataFrame(columns=ELECTRIC_COLS)
 if "gas_df" not in st.session_state:
-    st.session_state.gas_df = pd.DataFrame(columns=["date", "therms", "co2_kg"])
+    st.session_state.gas_df = pd.DataFrame(columns=GAS_COLS)
 if "processed_files" not in st.session_state:
     st.session_state.processed_files = set()
 if "using_example_data" not in st.session_state:
@@ -112,6 +114,25 @@ with st.sidebar:
     )
 
 
+def _merge_api_response(data: dict) -> None:
+    """Merge a /process_auto API response into session state DataFrames."""
+    records = data["records"]
+    if data["file_type"] == "electric":
+        new_df = pd.DataFrame(records)[ELECTRIC_COLS]
+        new_df["timestamp"] = pd.to_datetime(new_df["timestamp"])
+        combined = pd.concat(
+            [st.session_state.electric_df, new_df]
+        ).drop_duplicates(subset=["timestamp"])
+        st.session_state.electric_df = combined.sort_values("timestamp").reset_index(drop=True)
+    else:
+        new_df = pd.DataFrame(records)[GAS_COLS]
+        new_df["date"] = pd.to_datetime(new_df["date"])
+        combined = pd.concat(
+            [st.session_state.gas_df, new_df]
+        ).drop_duplicates(subset=["date"])
+        st.session_state.gas_df = combined.sort_values("date").reset_index(drop=True)
+
+
 def _load_example_files():
     _data_dir = pathlib.Path(__file__).parent / "data"
     example_files = [
@@ -129,32 +150,10 @@ def _load_example_files():
                 resp = requests.post(
                     f"{API_URL}/process_auto",
                     files={"file": (filename, file_bytes, "text/csv")},
-                    timeout=120,
+                    timeout=API_TIMEOUT,
                 )
                 resp.raise_for_status()
-                data = resp.json()
-                records = data["records"]
-                file_type = data["file_type"]
-                if file_type == "electric":
-                    new_df = pd.DataFrame(records)[
-                        ["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
-                    ]
-                    new_df["timestamp"] = pd.to_datetime(new_df["timestamp"])
-                    combined = pd.concat(
-                        [st.session_state.electric_df, new_df]
-                    ).drop_duplicates(subset=["timestamp"])
-                    st.session_state.electric_df = (
-                        combined.sort_values("timestamp").reset_index(drop=True)
-                    )
-                else:
-                    new_df = pd.DataFrame(records)[["date", "therms", "co2_kg"]]
-                    new_df["date"] = pd.to_datetime(new_df["date"])
-                    combined = pd.concat(
-                        [st.session_state.gas_df, new_df]
-                    ).drop_duplicates(subset=["date"])
-                    st.session_state.gas_df = (
-                        combined.sort_values("date").reset_index(drop=True)
-                    )
+                _merge_api_response(resp.json())
                 st.session_state.processed_files.add(file_id)
             except Exception as e:
                 st.error(f"Error loading example file {filename}: {e}")
@@ -170,10 +169,8 @@ uploaded_files = st.file_uploader(
 
 # Process new files
 if uploaded_files and st.session_state.using_example_data:
-    st.session_state.electric_df = pd.DataFrame(
-        columns=["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
-    )
-    st.session_state.gas_df = pd.DataFrame(columns=["date", "therms", "co2_kg"])
+    st.session_state.electric_df = pd.DataFrame(columns=ELECTRIC_COLS)
+    st.session_state.gas_df = pd.DataFrame(columns=GAS_COLS)
     st.session_state.processed_files = set()
     st.session_state.using_example_data = False
 
@@ -185,34 +182,13 @@ for f in uploaded_files or []:
                 resp = requests.post(
                     f"{API_URL}/process_auto",
                     files={"file": (f.name, f.getvalue(), "text/csv")},
-                    timeout=120,
+                    timeout=API_TIMEOUT,
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                records = data["records"]
-                file_type = data["file_type"]
-                if file_type == "electric":
-                    new_df = pd.DataFrame(records)[
-                        ["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
-                    ]
-                    new_df["timestamp"] = pd.to_datetime(new_df["timestamp"])
-                    combined = pd.concat(
-                        [st.session_state.electric_df, new_df]
-                    ).drop_duplicates(subset=["timestamp"])
-                    st.session_state.electric_df = (
-                        combined.sort_values("timestamp").reset_index(drop=True)
-                    )
-                else:  # gas
-                    new_df = pd.DataFrame(records)[["date", "therms", "co2_kg"]]
-                    new_df["date"] = pd.to_datetime(new_df["date"])
-                    combined = pd.concat(
-                        [st.session_state.gas_df, new_df]
-                    ).drop_duplicates(subset=["date"])
-                    st.session_state.gas_df = (
-                        combined.sort_values("date").reset_index(drop=True)
-                    )
+                _merge_api_response(data)
                 st.session_state.processed_files.add(file_id)
-                st.success(f"Loaded {len(records)} {file_type} records from {f.name}")
+                st.success(f"Loaded {len(data['records'])} {data['file_type']} records from {f.name}")
             except requests.exceptions.HTTPError as e:
                 detail = ""
                 try:
