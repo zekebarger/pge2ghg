@@ -23,6 +23,15 @@ _token_expiry: datetime | None = None
 # Use a 29-minute lifetime to stay safely inside the 30-minute window
 TOKEN_LIFETIME = timedelta(minutes=29)
 
+# Sliding-window rate limiter settings (WattTime free tier: 10 req/s)
+RATE_LIMIT_CALLS = 10   # max calls per window
+RATE_LIMIT_WINDOW = 1.0  # seconds
+
+# WattTime returns 5-minute data; PG&E intervals are 15-minute aligned,
+# so we only cache and match on 15-minute-aligned points.
+INTENSITY_INTERVAL_MINUTES = 15
+INTENSITY_INTERVAL_SECONDS = INTENSITY_INTERVAL_MINUTES * 60  # 900
+
 
 def get_token() -> str:
     """Return a valid bearer token, reusing the cached one if it hasn't expired."""
@@ -45,16 +54,16 @@ def get_token() -> str:
 
 REGION = "CAISO_NORTH"
 
-# Sliding-window rate limiter: tracks the monotonic timestamps of the last 10
-# get_historical calls. When the window is full, we sleep until the oldest call
-# is more than 1 second old before proceeding.
-_call_times: deque[float] = deque(maxlen=10)
+# Sliding-window rate limiter: tracks the monotonic timestamps of the last
+# RATE_LIMIT_CALLS get_historical calls. When the window is full, we sleep
+# until the oldest call is more than RATE_LIMIT_WINDOW seconds old.
+_call_times: deque[float] = deque(maxlen=RATE_LIMIT_CALLS)
 
 
 def get_historical(start: datetime, end: datetime) -> pd.DataFrame:
     """Fetch marginal CO2 intensity from WattTime for a date range (≤32 days)."""
-    if len(_call_times) == 10:
-        wait = 1.0 - (time.monotonic() - _call_times[0])
+    if len(_call_times) == RATE_LIMIT_CALLS:
+        wait = RATE_LIMIT_WINDOW - (time.monotonic() - _call_times[0])
         if wait > 0:
             time.sleep(wait)
     _call_times.append(time.monotonic())
@@ -100,7 +109,7 @@ def fetch_and_store_intensity(db: Session, start_dt: datetime, end_dt: datetime)
     while chunk_start < end_dt:
         chunk_end = min(chunk_start + timedelta(days=MAX_CHUNK_DAYS), end_dt)
 
-        expected_slots = int((chunk_end - chunk_start).total_seconds() / 900)
+        expected_slots = int((chunk_end - chunk_start).total_seconds() / INTENSITY_INTERVAL_SECONDS)
         chunk_existing = sum(1 for t in existing_times if chunk_start <= t <= chunk_end)
         if chunk_existing >= expected_slots:
             logger.info("Cache hit for chunk %s to %s, skipping API call", chunk_start, chunk_end)
@@ -115,7 +124,7 @@ def fetch_and_store_intensity(db: Session, start_dt: datetime, end_dt: datetime)
 
         # Keep only the 15-min-aligned points that PG&E intervals will actually use
         df["point_time"] = pd.to_datetime(df["point_time"], utc=True)
-        df = df[df["point_time"].dt.minute % 15 == 0]
+        df = df[df["point_time"].dt.minute % INTENSITY_INTERVAL_MINUTES == 0]
 
         # Bulk-insert with ON CONFLICT DO NOTHING to handle overlapping fetches
         rows = [
