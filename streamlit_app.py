@@ -175,7 +175,7 @@ if electric_df.empty and gas_df.empty:
 # --- Resolution toggle ---
 resolution = st.radio("Time resolution", ["15 min", "Hourly", "Daily"], horizontal=True)
 
-st.subheader(f"kg CO\u2082e emitted, {resolution} resolution")
+st.subheader(f"kg CO\u2082e emitted, {resolution.lower()} resolution")
 
 # --- Aggregate electric data ---
 def aggregate_electric(df: pd.DataFrame, res: str) -> pd.DataFrame:
@@ -295,6 +295,13 @@ def make_summary_fig(elec: pd.DataFrame, gas: pd.DataFrame, res: str) -> go.Figu
     fig.update_yaxes(title_text="kWh", row=2, col=1, secondary_y=False)
     if not elec.empty:
         fig.update_yaxes(title_text="kg CO\u2082e/kWh", row=2, col=1, secondary_y=True)
+    fig.update_xaxes(
+        tickfont=dict(color="black"),
+        title_font=dict(color="black"),
+        showgrid=True,
+        gridcolor="rgba(0,0,0,0.12)",
+    )
+    fig.update_yaxes(tickfont=dict(color="black"), title_font=dict(color="black"))
     fig.update_layout(height=400, hovermode="x unified", margin=dict(t=10), font=dict(color="black"))
     return fig
 
@@ -394,6 +401,13 @@ fig.update_yaxes(title_text="CO\u2082e (kg)", row=1, col=1)
 fig.update_yaxes(title_text="kWh", row=2, col=1, secondary_y=False)
 if not elec.empty:
     fig.update_yaxes(title_text="kg CO\u2082e/kWh", row=2, col=1, secondary_y=True)
+fig.update_xaxes(
+    tickfont=dict(color="black"),
+    title_font=dict(color="black"),
+    showgrid=True,
+    gridcolor="rgba(0,0,0,0.12)",
+)
+fig.update_yaxes(tickfont=dict(color="black"), title_font=dict(color="black"))
 
 # Enforce legend order by controlling fig.data position
 _name_rank = {
