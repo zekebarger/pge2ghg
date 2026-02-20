@@ -18,11 +18,11 @@ _svg_path = pathlib.Path(__file__).parent / "co2_molecule.svg"
 _svg_content = _svg_path.read_text()
 _svg_icon = _svg_content.replace('width="300" height="300"', 'width="60" height="60"')
 
-st.set_page_config(page_title="GHG Emissions Tracker", layout="wide", page_icon=str(_svg_path))
+st.set_page_config(page_title="GHG Emissions Calculator", layout="wide", page_icon=str(_svg_path))
 
 st.markdown(
     f'<h1 style="display:flex;align-items:center;gap:0.5rem">'
-    f'GHG Emissions Tracker {_svg_icon}'
+    f'GHG Emissions Calculator {_svg_icon}'
     f'</h1>',
     unsafe_allow_html=True,
 )
