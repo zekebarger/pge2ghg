@@ -9,7 +9,11 @@ DATABASE_URL = os.getenv(
     "postgresql://ghguser:ghgpassword@localhost:5432/ghgdb"
 )
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,  # test connection before use; discards stale ones
+    pool_recycle=300,    # proactively recycle after 5 min (matches free-tier idle timeout)
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 class Base(DeclarativeBase):

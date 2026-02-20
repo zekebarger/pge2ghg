@@ -1,6 +1,8 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing import List
 import pandas as pd
@@ -25,15 +27,40 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Create all tables on startup if they don't already exist.
-# In production you'd use a migration tool like Alembic instead,
-# but this is fine for learning.
-Base.metadata.create_all(bind=engine)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create tables (idempotent).
+    logger.info("Creating database tables if needed")
+    Base.metadata.create_all(bind=engine)
+
+    # Probe real DB connectivity so we surface stale/refused connections
+    # at startup rather than on the first user request.
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        logger.info("Database connectivity check passed")
+    except Exception:
+        logger.exception("Database connectivity check FAILED — app may not function correctly")
+        # Don't raise: allow the app to start so /health still responds.
+
+    # Pre-fetch WattTime token to validate credentials and warm the cache.
+    # Non-fatal: a WattTime outage must not block startup.
+    try:
+        watttime.get_token()
+        logger.info("WattTime token pre-fetched successfully")
+    except Exception:
+        logger.warning("WattTime token pre-fetch failed — first /process request will retry")
+
+    yield
+    # (nothing to tear down on shutdown)
+
 
 app = FastAPI(
     title="GHG Emissions Tracker",
     description="Upload a PG&E CSV and calculate CO₂e emissions using live WattTime marginal intensity data.",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 
