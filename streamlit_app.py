@@ -14,6 +14,8 @@ API_TIMEOUT = 120  # seconds; WattTime fetches can be slow for long date ranges
 ELECTRIC_COLS = ["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
 GAS_COLS = ["date", "therms", "co2_kg"]
 
+TOP_N_DAYS = 7
+
 _geojson_path = pathlib.Path(__file__).parent / "data" / "caiso_north.geojson"
 with open(_geojson_path) as f:
     _caiso_geojson = json.load(f)
@@ -471,7 +473,6 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # --- Typical daily and weekly profiles ---
-st.divider()
 col_daily, col_weekly = st.columns(2)
 
 with col_daily:
@@ -486,3 +487,110 @@ with col_weekly:
     fig_week = make_summary_fig(weekly_profile(electric_df, resolution), gas_wp, resolution)
     fig_week.update_xaxes(tickformat="%a", dtick=86400000)
     st.plotly_chart(fig_week, use_container_width=True)
+
+# Summary results section
+total_elec_co2e = electric_df["co2e_kg"].sum()
+total_gas_co2e = gas_df["co2_kg"].sum() if not gas_df.empty else 0.0
+total_co2e = total_elec_co2e + total_gas_co2e
+
+if not electric_df.empty:
+    elec_daily = electric_df.copy()
+    elec_daily["timestamp"] = elec_daily["timestamp"].dt.tz_convert("America/Los_Angeles")
+    elec_daily["date"] = elec_daily["timestamp"].dt.date
+    elec_daily = elec_daily.groupby("date")["co2e_kg"].sum().reset_index()
+    elec_daily = elec_daily.rename(columns={"co2e_kg": "elec_co2e"})
+else:
+    elec_daily = pd.DataFrame(columns=["date", "elec_co2e"])
+
+if not gas_df.empty:
+    gas_daily = gas_df[["date", "co2_kg"]].copy()
+    gas_daily["date"] = pd.to_datetime(gas_daily["date"]).dt.date
+    merged = pd.merge(elec_daily, gas_daily, on="date", how="outer").fillna(0)
+else:
+    merged = elec_daily.copy()
+    merged["co2_kg"] = 0.0
+merged["total"] = merged["elec_co2e"] + merged["co2_kg"]
+
+top_days = merged.nlargest(
+    min(TOP_N_DAYS, len(merged)),
+    "total"
+).sort_values("total", ascending=True)
+top_days_labels = [str(d) for d in top_days["date"]]
+top_days_positions = list(range(len(top_days)))
+
+col_summary, col_top_days = st.columns(2)
+
+with col_summary:
+    st.metric("Total CO\u2082e emitted", f"{total_co2e:,.1f} kg")
+
+    donut_labels, donut_values, donut_colors = [], [], []
+    if not gas_df.empty and total_gas_co2e > 0:
+        donut_labels.append("Gas")
+        donut_values.append(total_gas_co2e)
+        donut_colors.append("#d30000")
+    if not electric_df.empty and total_elec_co2e > 0:
+        donut_labels.append("Electric")
+        donut_values.append(total_elec_co2e)
+        donut_colors.append("black")
+
+    fig_donut = go.Figure(go.Pie(
+        labels=donut_labels,
+        values=donut_values,
+        hole=0.5,
+        marker=dict(colors=donut_colors),
+        sort=False,
+        hovertemplate=(
+            "%{percent} from %{label}<br>"
+            "%{value:.2f} kg"
+        ),
+        textfont_size=15,
+    ))
+    fig_donut.update_traces(textinfo='percent+label')
+    fig_donut.update_layout(
+        height=330,
+        font=dict(color="black"),
+        showlegend=False,
+        margin=dict(t=20, b=20, l=20, r=20),
+    )
+    st.plotly_chart(fig_donut, use_container_width=True)
+
+with col_top_days:
+    st.markdown(f"**Days with highest total CO\u2082e**")
+    fig_top_days = go.Figure()
+    if not electric_df.empty:
+        fig_top_days.add_trace(go.Bar(
+            y=top_days_positions,
+            x=top_days["elec_co2e"],
+            name="Electric CO\u2082e (kg)",
+            orientation="h",
+            marker_color="black",
+        ))
+    if not gas_df.empty:
+        fig_top_days.add_trace(go.Bar(
+            y=top_days_positions,
+            x=top_days["co2_kg"],
+            name="Gas CO\u2082 (kg)",
+            orientation="h",
+            marker_color="#d30000",
+        ))
+    fig_top_days.update_layout(
+        barmode="stack",
+        height=390,
+        font=dict(color="black"),
+        xaxis_title="CO\u2082e (kg)",
+        yaxis=dict(tickmode="array", tickvals=top_days_positions, ticktext=top_days_labels),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(t=40, b=40, l=80, r=20),
+    )
+    fig_top_days.update_layout(legend_traceorder="grouped+reversed", font=dict(color="black"))
+    fig_top_days.update_xaxes(
+        tickfont=dict(color="black"),
+        title_font=dict(color="black"),
+        showgrid=True,
+        gridcolor="rgba(0,0,0,0.12)",
+    )
+    fig_top_days.update_yaxes(
+        tickfont=dict(color="black"),
+        title_font=dict(color="black")
+    )
+    st.plotly_chart(fig_top_days, use_container_width=True)
