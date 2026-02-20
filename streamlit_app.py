@@ -37,6 +37,8 @@ if "gas_df" not in st.session_state:
     st.session_state.gas_df = pd.DataFrame(columns=["date", "therms", "co2_kg"])
 if "processed_files" not in st.session_state:
     st.session_state.processed_files = set()
+if "using_example_data" not in st.session_state:
+    st.session_state.using_example_data = False
 
 
 def make_region_map(geojson):
@@ -110,6 +112,54 @@ with st.sidebar:
     )
 
 
+def _load_example_files():
+    _data_dir = pathlib.Path(__file__).parent / "data"
+    example_files = [
+        "mar_2024_electric_example.csv",
+        "mar_2024_gas_example.csv",
+    ]
+    for filename in example_files:
+        filepath = _data_dir / filename
+        file_bytes = filepath.read_bytes()
+        file_id = f"{filename}:{len(file_bytes)}"
+        if file_id in st.session_state.processed_files:
+            continue
+        with st.spinner(f"Loading {filename}..."):
+            try:
+                resp = requests.post(
+                    f"{API_URL}/process_auto",
+                    files={"file": (filename, file_bytes, "text/csv")},
+                    timeout=120,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                records = data["records"]
+                file_type = data["file_type"]
+                if file_type == "electric":
+                    new_df = pd.DataFrame(records)[
+                        ["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
+                    ]
+                    new_df["timestamp"] = pd.to_datetime(new_df["timestamp"])
+                    combined = pd.concat(
+                        [st.session_state.electric_df, new_df]
+                    ).drop_duplicates(subset=["timestamp"])
+                    st.session_state.electric_df = (
+                        combined.sort_values("timestamp").reset_index(drop=True)
+                    )
+                else:
+                    new_df = pd.DataFrame(records)[["date", "therms", "co2_kg"]]
+                    new_df["date"] = pd.to_datetime(new_df["date"])
+                    combined = pd.concat(
+                        [st.session_state.gas_df, new_df]
+                    ).drop_duplicates(subset=["date"])
+                    st.session_state.gas_df = (
+                        combined.sort_values("date").reset_index(drop=True)
+                    )
+                st.session_state.processed_files.add(file_id)
+            except Exception as e:
+                st.error(f"Error loading example file {filename}: {e}")
+
+
 # --- File upload section ---
 uploaded_files = st.file_uploader(
     "Upload PG&E CSV file(s)",
@@ -119,6 +169,14 @@ uploaded_files = st.file_uploader(
 )
 
 # Process new files
+if uploaded_files and st.session_state.using_example_data:
+    st.session_state.electric_df = pd.DataFrame(
+        columns=["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
+    )
+    st.session_state.gas_df = pd.DataFrame(columns=["date", "therms", "co2_kg"])
+    st.session_state.processed_files = set()
+    st.session_state.using_example_data = False
+
 for f in uploaded_files or []:
     file_id = f"{f.name}:{f.size}"
     if file_id not in st.session_state.processed_files:
@@ -169,7 +227,14 @@ electric_df = st.session_state.electric_df
 gas_df = st.session_state.gas_df
 
 if electric_df.empty and gas_df.empty:
-    st.info("Upload one or more PG&E CSV files above to get started.")
+    st.info(
+        "Upload one or more PG&E CSV files above to get started, "
+        "or click the button below to view example data."
+    )
+    if st.button("View example data"):
+        _load_example_files()
+        st.session_state.using_example_data = True
+        st.rerun()
     st.stop()
 
 # --- Resolution toggle ---
@@ -423,7 +488,7 @@ fig.update_layout(
     hovermode="x unified",
     font=dict(color="black"),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    legend2=dict(orientation="h", yanchor="top", y=0.44, xanchor="right", x=1),
+    legend2=dict(orientation="h", yanchor="bottom", y=0.47, xanchor="right", x=1),
 )
 
 st.plotly_chart(fig, use_container_width=True)

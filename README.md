@@ -202,7 +202,4 @@ Upload one or more PG&E CSVs using the single file uploader — electric and gas
 
 ## Next steps
 
-- error on first run?
-- include sample data
-- highlight top 10% of days / hours etc.
-- buy and use domain
+- Highlight top 10% of days / hours etc.

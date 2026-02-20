@@ -8,6 +8,8 @@ RUN pip install --no-cache-dir -r requirements-streamlit.txt
 COPY streamlit_app.py .
 COPY co2_molecule.svg .
 COPY data/caiso_north.geojson data/caiso_north.geojson
+COPY data/mar_2024_electric_example.csv data/mar_2024_electric_example.csv
+COPY data/mar_2024_gas_example.csv data/mar_2024_gas_example.csv
 
 EXPOSE 8501
 
