@@ -165,6 +165,7 @@ uploaded_files = st.file_uploader(
     type="csv",
     accept_multiple_files=True,
     key="file_uploader",
+    max_upload_size=25,
 )
 
 # Process new files
