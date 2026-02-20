@@ -63,23 +63,31 @@ with st.sidebar:
     st.subheader("Step 1 — Download your data from PG&E")
     st.markdown(
         "Log in to your PG&E account at [pge.com](https://www.pge.com) and navigate to "
-        "**My Energy** → **Energy Use Details** → **Green Button** → **Download my data**. "
-        "Download separate CSV files for electricity and natural gas."
+        "**Usage and Rates** → **Energy Use Details** → **Green Button**. "
+        "Download results in CSV format for a bill period or a range of days. "
+        "If you want, delete your name, address, and account number from the files."
     )
 
     st.subheader("Step 2 — Upload your files")
     st.markdown(
-        "Use the upload boxes on the main page to upload one or more electric and/or "
-        "gas CSVs. Multiple files are supported (e.g., if you downloaded data month by month). "
-        "The app will deduplicate files you upload more than once."
+        "Use the upload widget on this page to upload one or more CSV files "
+        "of electric and/or gas usage data."
+    )
+
+    st.subheader("Step 3 — View your data")
+    st.markdown(
+        "Use the plots to inspect your CO\u2082e emissions over time. "
+        "Emissions from natural gas use can be displayed when the time resolution "
+        "is set to 'Daily'. The two plots at the bottom of the page show average "
+        "emissions for each hour of the day and each day of the week."
     )
 
     st.divider()
 
     st.subheader("Supported region")
     st.markdown(
-        "This app only works for customers in the **CAISO_NORTH** grid region, which covers "
-        "most of PG&E's service territory in Northern and Central California."
+        "Calculations are only valid for customers in the **CAISO_NORTH** grid region,"
+        "which covers most of PG&E's service territory in Northern and Central California."
     )
     st.plotly_chart(make_region_map(_caiso_geojson), use_container_width=True)
 
@@ -89,9 +97,8 @@ with st.sidebar:
     st.markdown(
         "The electricity emissions factors come from [WattTime](https://www.watttime.org)'s "
         "`co2_moer` signal for the CAISO_NORTH region as a whole. If you are enrolled in a "
-        "**Community Choice Aggregation (CCA)** program (e.g., MCE, East Bay Community Energy, "
-        "Peninsula Clean Energy, Silicon Valley Clean Energy, Marin Clean Energy), the actual "
-        "carbon intensity of your electricity supply may differ from what this app shows."
+        "**Community Choice Aggregation (CCA)** program, the actual carbon intensity "
+        "of your electricity supply may differ from what this app shows."
     )
 
 
@@ -434,13 +441,13 @@ st.divider()
 col_daily, col_weekly = st.columns(2)
 
 with col_daily:
-    st.markdown("**Day-level average**")
+    st.markdown("**Average by hour of day**")
     fig_day = make_summary_fig(daily_profile(electric_df, resolution), pd.DataFrame(), resolution)
     fig_day.update_xaxes(tickformat="%H:%M")
     st.plotly_chart(fig_day, use_container_width=True)
 
 with col_weekly:
-    st.markdown("**Week-level average**")
+    st.markdown("**Average by day of week**")
     gas_wp = gas_weekly_profile(gas_df) if resolution == "Daily" else pd.DataFrame()
     fig_week = make_summary_fig(weekly_profile(electric_df, resolution), gas_wp, resolution)
     fig_week.update_xaxes(tickformat="%a", dtick=86400000)
