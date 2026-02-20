@@ -34,12 +34,12 @@ if "processed_gas" not in st.session_state:
 def make_region_map(geojson):
     lats, lons = [], []
     for polygon in geojson["coordinates"]:
-        outer_ring = polygon[0]
-        for lon, lat in outer_ring:
-            lons.append(lon)
-            lats.append(lat)
-        lons.append(None)
-        lats.append(None)
+        for ring in polygon:
+            for lon, lat in ring:
+                lons.append(lon)
+                lats.append(lat)
+            lons.append(None)
+            lats.append(None)
 
     fig = go.Figure(go.Scattermapbox(
         lat=lats, lon=lons,
@@ -78,8 +78,8 @@ with st.sidebar:
     st.markdown(
         "Use the plots to inspect your CO\u2082e emissions over time. "
         "Emissions from natural gas use can be displayed when the time resolution "
-        "is set to 'Daily'. The two plots at the bottom of the page show average "
-        "emissions for each hour of the day and each day of the week."
+        "is set to 'Daily'. The two plots at the bottom of the page show averages "
+        "at the daily and weekly levels."
     )
 
     st.divider()
@@ -441,13 +441,13 @@ st.divider()
 col_daily, col_weekly = st.columns(2)
 
 with col_daily:
-    st.markdown("**Average by hour of day**")
+    st.markdown("**Day-level average**")
     fig_day = make_summary_fig(daily_profile(electric_df, resolution), pd.DataFrame(), resolution)
     fig_day.update_xaxes(tickformat="%H:%M")
     st.plotly_chart(fig_day, use_container_width=True)
 
 with col_weekly:
-    st.markdown("**Average by day of week**")
+    st.markdown("**Week-level average**")
     gas_wp = gas_weekly_profile(gas_df) if resolution == "Daily" else pd.DataFrame()
     fig_week = make_summary_fig(weekly_profile(electric_df, resolution), gas_wp, resolution)
     fig_week.update_xaxes(tickformat="%a", dtick=86400000)
