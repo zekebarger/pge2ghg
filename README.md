@@ -63,36 +63,31 @@ You should see Postgres start, then the FastAPI app connect to it.
 
 ## Using the API
 
-**Upload a PG&E electricity CSV and get an emissions summary:**
+**Upload any PG&E CSV (auto-detected):**
 ```bash
-curl -X POST http://localhost:8000/process \
-  -F "file=@data/your_pge_electric_export.csv"
+curl -X POST http://localhost:8000/process_auto \
+  -F "file=@data/your_pge_export.csv"
 ```
 
-This parses the uploaded PG&E Green Button CSV, fetches WattTime marginal intensity for the covered date range (only for intervals not already cached), and returns an aggregate summary. Nothing from the PG&E file is stored in the database.
+The file type is detected automatically from the `TYPE` column in the CSV (`Electric usage` or `Natural gas usage`). The response includes a `file_type` field (`"electric"` or `"gas"`) in addition to the normal summary fields.
 
-Example response:
+Example response (electric):
 ```json
 {
+  "file_type": "electric",
   "records_processed": 2880,
   "total_kwh": 312.45,
   "total_co2e_kg": 42.18,
   "total_co2e_lbs": 93.01,
-  "avg_emissions_factor": 0.000135
+  "avg_emissions_factor": 0.000135,
+  "records": ["..."]
 }
 ```
 
-**Upload a PG&E natural gas CSV and get an emissions summary:**
-```bash
-curl -X POST http://localhost:8000/process_gas \
-  -F "file=@data/your_pge_gas_export.csv"
-```
-
-This parses the uploaded PG&E natural gas CSV and calculates daily CO₂ emissions using the EPA fixed factor. No WattTime API call or database write occurs.
-
-Example response:
+Example response (gas):
 ```json
 {
+  "file_type": "gas",
   "records_processed": 31,
   "total_therms": 16.77,
   "total_co2_kg": 89.1082,
@@ -100,6 +95,20 @@ Example response:
   "emissions_factor_kg_per_therm": 5.312,
   "records": ["..."]
 }
+```
+
+The dedicated endpoints are still available if needed:
+
+**Upload a PG&E electricity CSV:**
+```bash
+curl -X POST http://localhost:8000/process \
+  -F "file=@data/your_pge_electric_export.csv"
+```
+
+**Upload a PG&E natural gas CSV:**
+```bash
+curl -X POST http://localhost:8000/process_gas \
+  -F "file=@data/your_pge_gas_export.csv"
 ```
 
 **Inspect the cached WattTime intensity data:**
@@ -183,9 +192,15 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 
 ---
 
-## Next steps
+## Streamlit UI
 
-**Create a front-end** with streamlit
+A Streamlit front-end is included (`streamlit_app.py`). It is served as a separate container via `docker-compose.yml`.
+
+Upload one or more PG&E CSVs using the single file uploader — electric and gas files are detected automatically and routed to the correct pipeline. Both types can be uploaded together in one batch. Uploaded files are deduplicated within a session so re-selecting the same file is a no-op.
+
+---
+
+## Next steps
 
 - include sample data
 - highlight top 10% of days / hours etc.

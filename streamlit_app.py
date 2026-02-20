@@ -35,10 +35,8 @@ if "electric_df" not in st.session_state:
     )
 if "gas_df" not in st.session_state:
     st.session_state.gas_df = pd.DataFrame(columns=["date", "therms", "co2_kg"])
-if "processed_electric" not in st.session_state:
-    st.session_state.processed_electric = set()
-if "processed_gas" not in st.session_state:
-    st.session_state.processed_gas = set()
+if "processed_files" not in st.session_state:
+    st.session_state.processed_files = set()
 
 
 def make_region_map(geojson):
@@ -113,84 +111,50 @@ with st.sidebar:
 
 
 # --- File upload section ---
-col1, col2 = st.columns(2)
+uploaded_files = st.file_uploader(
+    "Upload PG&E CSV file(s)",
+    type="csv",
+    accept_multiple_files=True,
+    key="file_uploader",
+)
 
-with col1:
-    st.subheader("Electric Usage")
-    electric_files = st.file_uploader(
-        "Upload PG&E electric CSV(s)",
-        type="csv",
-        accept_multiple_files=True,
-        key="electric_uploader",
-    )
-
-with col2:
-    st.subheader("Natural Gas Usage")
-    gas_files = st.file_uploader(
-        "Upload PG&E gas CSV(s)",
-        type="csv",
-        accept_multiple_files=True,
-        key="gas_uploader",
-    )
-
-# Process new electric files
-for f in electric_files or []:
+# Process new files
+for f in uploaded_files or []:
     file_id = f"{f.name}:{f.size}"
-    if file_id not in st.session_state.processed_electric:
+    if file_id not in st.session_state.processed_files:
         with st.spinner(f"Processing {f.name}..."):
             try:
                 resp = requests.post(
-                    f"{API_URL}/process",
+                    f"{API_URL}/process_auto",
                     files={"file": (f.name, f.getvalue(), "text/csv")},
                     timeout=120,
                 )
                 resp.raise_for_status()
-                records = resp.json()["records"]
-                new_df = pd.DataFrame(records)[
-                    ["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
-                ]
-                new_df["timestamp"] = pd.to_datetime(new_df["timestamp"])
-                combined = pd.concat(
-                    [st.session_state.electric_df, new_df]
-                ).drop_duplicates(subset=["timestamp"])
-                st.session_state.electric_df = (
-                    combined.sort_values("timestamp").reset_index(drop=True)
-                )
-                st.session_state.processed_electric.add(file_id)
-                st.success(f"Loaded {len(records)} records from {f.name}")
-            except requests.exceptions.HTTPError as e:
-                detail = ""
-                try:
-                    detail = e.response.json().get("detail", "")
-                except Exception:
-                    pass
-                st.error(f"Error processing {f.name}: {e}" + (f"\n\n{detail}" if detail else ""))
-            except Exception as e:
-                st.error(f"Error processing {f.name}: {e}")
-
-# Process new gas files
-for f in gas_files or []:
-    file_id = f"{f.name}:{f.size}"
-    if file_id not in st.session_state.processed_gas:
-        with st.spinner(f"Processing {f.name}..."):
-            try:
-                resp = requests.post(
-                    f"{API_URL}/process_gas",
-                    files={"file": (f.name, f.getvalue(), "text/csv")},
-                    timeout=120,
-                )
-                resp.raise_for_status()
-                records = resp.json()["records"]
-                new_df = pd.DataFrame(records)[["date", "therms", "co2_kg"]]
-                new_df["date"] = pd.to_datetime(new_df["date"])
-                combined = pd.concat(
-                    [st.session_state.gas_df, new_df]
-                ).drop_duplicates(subset=["date"])
-                st.session_state.gas_df = (
-                    combined.sort_values("date").reset_index(drop=True)
-                )
-                st.session_state.processed_gas.add(file_id)
-                st.success(f"Loaded {len(records)} records from {f.name}")
+                data = resp.json()
+                records = data["records"]
+                file_type = data["file_type"]
+                if file_type == "electric":
+                    new_df = pd.DataFrame(records)[
+                        ["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
+                    ]
+                    new_df["timestamp"] = pd.to_datetime(new_df["timestamp"])
+                    combined = pd.concat(
+                        [st.session_state.electric_df, new_df]
+                    ).drop_duplicates(subset=["timestamp"])
+                    st.session_state.electric_df = (
+                        combined.sort_values("timestamp").reset_index(drop=True)
+                    )
+                else:  # gas
+                    new_df = pd.DataFrame(records)[["date", "therms", "co2_kg"]]
+                    new_df["date"] = pd.to_datetime(new_df["date"])
+                    combined = pd.concat(
+                        [st.session_state.gas_df, new_df]
+                    ).drop_duplicates(subset=["date"])
+                    st.session_state.gas_df = (
+                        combined.sort_values("date").reset_index(drop=True)
+                    )
+                st.session_state.processed_files.add(file_id)
+                st.success(f"Loaded {len(records)} {file_type} records from {f.name}")
             except requests.exceptions.HTTPError as e:
                 detail = ""
                 try:
