@@ -276,43 +276,43 @@ def _run_3cycle_pass(
                     f"save {best_benefit:,.2f} gCO2"
                 )
 
-
-# ---- Demo / Example Usage ----
-
-if __name__ == "__main__":
-    np.random.seed(42)
-    N = 720  # ~one month of hours
-
-    # Simulate carbon intensity with a daily pattern + noise
-    hours = np.arange(N)
-    daily_pattern = 50 * np.sin(2 * np.pi * (hours % 24) / 24 - np.pi / 3) + 200
-    carbon_intensity = daily_pattern + np.random.normal(0, 15, N)
-    carbon_intensity = np.clip(carbon_intensity, 50, 400)
-
-    # Simulate demand with a different daily pattern + noise
-    demand_pattern = 100 * np.sin(2 * np.pi * (hours % 24) / 24 + np.pi / 6) + 500
-    demand = demand_pattern + np.random.normal(0, 30, N)
-    demand = np.clip(demand, 100, 1000)
-
-    print("=" * 60)
-    print("Demand Shifting Optimization Demo")
-    print("=" * 60)
-
-    for f, K in [(.05, 4)]: #(0.05, 3), (0.10, 6), (0.20, 12)]:
-        print(f"\n--- f={f:.0%} budget, K=±{K} hours ---")
-        result = optimize_demand(
-            demand,
-            carbon_intensity,
-            budget_fraction=f,
-            max_shift_hours=K,
-            do_3cycle_pass=False,
-            verbose=True,
-        )
-        print(f"  Result: {result.reduction_absolute:,.0f} gCO2 saved "
-              f"({result.reduction_percent:.2f}% reduction)")
-        print(f"  Hours moved: {result.num_hours_moved} / {result.budget_total}")
-        if result.swaps:
-            top = sorted(result.swaps, key=lambda s: s.emission_reduction, reverse=True)[:3]
-            print(f"  Top 3 swaps:")
-            for s in top:
-                print(f"    hours {s.hour_i} <-> {s.hour_j}: {s.emission_reduction:,.1f} gCO2")
+#
+# # ---- Demo / Example Usage ----
+#
+# if __name__ == "__main__":
+#     np.random.seed(42)
+#     N = 720  # ~one month of hours
+#
+#     # Simulate carbon intensity with a daily pattern + noise
+#     hours = np.arange(N)
+#     daily_pattern = 50 * np.sin(2 * np.pi * (hours % 24) / 24 - np.pi / 3) + 200
+#     carbon_intensity = daily_pattern + np.random.normal(0, 15, N)
+#     carbon_intensity = np.clip(carbon_intensity, 50, 400)
+#
+#     # Simulate demand with a different daily pattern + noise
+#     demand_pattern = 100 * np.sin(2 * np.pi * (hours % 24) / 24 + np.pi / 6) + 500
+#     demand = demand_pattern + np.random.normal(0, 30, N)
+#     demand = np.clip(demand, 100, 1000)
+#
+#     print("=" * 60)
+#     print("Demand Shifting Optimization Demo")
+#     print("=" * 60)
+#
+#     for f, K in [(.05, 4)]: #(0.05, 3), (0.10, 6), (0.20, 12)]:
+#         print(f"\n--- f={f:.0%} budget, K=±{K} hours ---")
+#         result = optimize_demand(
+#             demand,
+#             carbon_intensity,
+#             budget_fraction=f,
+#             max_shift_hours=K,
+#             do_3cycle_pass=False,
+#             verbose=True,
+#         )
+#         print(f"  Result: {result.reduction_absolute:,.0f} gCO2 saved "
+#               f"({result.reduction_percent:.2f}% reduction)")
+#         print(f"  Hours moved: {result.num_hours_moved} / {result.budget_total}")
+#         if result.swaps:
+#             top = sorted(result.swaps, key=lambda s: s.emission_reduction, reverse=True)[:3]
+#             print(f"  Top 3 swaps:")
+#             for s in top:
+#                 print(f"    hours {s.hour_i} <-> {s.hour_j}: {s.emission_reduction:,.1f} gCO2")

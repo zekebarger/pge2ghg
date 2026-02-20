@@ -8,6 +8,8 @@ import requests
 import streamlit as st
 from plotly.subplots import make_subplots
 
+from optimize import optimize_demand
+
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
 API_TIMEOUT = 120  # seconds; WattTime fetches can be slow for long date ranges
 
@@ -594,3 +596,55 @@ with col_top_days:
         title_font=dict(color="black")
     )
     st.plotly_chart(fig_top_days, use_container_width=True)
+
+# --- Load Shifting Analysis ---
+st.divider()
+st.subheader("Load Shifting Analysis")
+
+
+@st.cache_data
+def _run_load_shift_optimization(demand, intensity, budget_fraction, max_shift_hours):
+    return optimize_demand(demand, intensity, budget_fraction=budget_fraction, max_shift_hours=max_shift_hours)
+
+
+if not electric_df.empty:
+    col_ls1, col_ls2 = st.columns(2)
+    with col_ls1:
+        budget_percent = st.number_input(
+            "Percent of hours that can be shifted",
+            min_value=1,
+            max_value=25,
+            value=4,
+            step=1,
+            help="Integer between 1 and 25",
+            width=300,
+        )
+        max_shift = st.number_input(
+            "Maximum hours by which load can be shifted",
+            min_value=1,
+            max_value=8,
+            value=3,
+            step=1,
+            help="Integer between 1 and 8",
+            width=300,
+        )
+
+    hourly = aggregate_electric(electric_df, "Hourly")
+    demand = hourly["kwh"].values
+    intensity = hourly["emissions_factor_kg_per_kwh"].values
+
+    with st.spinner("Running load shift optimization..."):
+        result = _run_load_shift_optimization(
+            demand,
+            intensity,
+            budget_fraction=int(budget_percent) / 100,
+            max_shift_hours=int(max_shift),
+        )
+
+    with col_ls2:
+        st.metric(
+            "CO\u2082e savings",
+            f"{result.reduction_percent:.1f}% ({result.reduction_absolute:.2f} kg)",
+        )
+else:
+    st.info("Upload electric usage data to see load shifting analysis.")
