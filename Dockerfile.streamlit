@@ -6,6 +6,7 @@ COPY requirements-streamlit.txt .
 RUN pip install --no-cache-dir -r requirements-streamlit.txt
 
 COPY streamlit_app.py .
+COPY co2_molecule.svg .
 COPY data/caiso_north.geojson data/caiso_north.geojson
 
 EXPOSE 8501

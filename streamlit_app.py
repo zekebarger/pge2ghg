@@ -14,9 +14,19 @@ _geojson_path = pathlib.Path(__file__).parent / "data" / "caiso_north.geojson"
 with open(_geojson_path) as f:
     _caiso_geojson = json.load(f)
 
-st.set_page_config(page_title="GHG Emissions Tracker", layout="wide")
-st.title("GHG Emissions Tracker")
-st.markdown("Upload PG&E CSV files to visualize your CO\u2082e emissions over time.")
+_svg_path = pathlib.Path(__file__).parent / "co2_molecule.svg"
+_svg_content = _svg_path.read_text()
+_svg_icon = _svg_content.replace('width="300" height="300"', 'width="60" height="60"')
+
+st.set_page_config(page_title="GHG Emissions Tracker", layout="wide", page_icon=str(_svg_path))
+
+st.markdown(
+    f'<h1 style="display:flex;align-items:center;gap:0.5rem">'
+    f'GHG Emissions Tracker {_svg_icon}'
+    f'</h1>',
+    unsafe_allow_html=True,
+)
+st.markdown("Upload PG&E 'Green Button' CSV files to visualize your CO\u2082e emissions over time.")
 
 # --- Session state ---
 if "electric_df" not in st.session_state:

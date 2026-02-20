@@ -189,6 +189,4 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 
 - include sample data
 - highlight top 10% of days / hours etc.
-- add sidebar of instructions
-- look up cleanpower sf
 - buy and use domain
