@@ -11,6 +11,40 @@ LBS_PER_MWH_TO_KG_PER_KWH = 2204.62
 THERMS_TO_KG_CO2 = 5.312  # kg CO2 per therm
 
 
+def detect_pge_file_type(file_bytes: bytes) -> str:
+    """
+    Detect whether a PG&E CSV contains electric or gas data.
+
+    Scans for the 'TYPE,' header row, then checks whether the TYPE column
+    contains 'Electric usage' or 'Natural gas usage' rows.
+    Returns 'electric' or 'gas', raises ValueError if neither is found.
+    """
+    text = file_bytes.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+
+    header_line = None
+    for i, line in enumerate(lines):
+        if line.startswith("TYPE,"):
+            header_line = i
+            break
+
+    if header_line is None:
+        raise ValueError("Could not find 'TYPE,' header row in the uploaded CSV.")
+
+    csv_body = "\n".join(lines[header_line:])
+    df = pd.read_csv(io.StringIO(csv_body))
+
+    types = set(df["TYPE"].dropna().unique())
+    if "Electric usage" in types:
+        return "electric"
+    if "Natural gas usage" in types:
+        return "gas"
+    raise ValueError(
+        "Could not detect file type: no 'Electric usage' or 'Natural gas usage' rows found. "
+        "Please upload a PG&E Green Button CSV."
+    )
+
+
 def parse_pge_csv(file_bytes: bytes) -> pd.DataFrame:
     """
     Parse a PG&E Green Button CSV export into a DataFrame of (timestamp, kwh).

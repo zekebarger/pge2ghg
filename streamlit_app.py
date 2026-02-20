@@ -1,4 +1,6 @@
+import json
 import os
+import pathlib
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -8,9 +10,23 @@ from plotly.subplots import make_subplots
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
 
-st.set_page_config(page_title="GHG Emissions Tracker", layout="wide")
-st.title("GHG Emissions Tracker")
-st.markdown("Upload PG&E CSV files to visualize your CO\u2082e emissions over time.")
+_geojson_path = pathlib.Path(__file__).parent / "data" / "caiso_north.geojson"
+with open(_geojson_path) as f:
+    _caiso_geojson = json.load(f)
+
+_svg_path = pathlib.Path(__file__).parent / "co2_molecule.svg"
+_svg_content = _svg_path.read_text()
+_svg_icon = _svg_content.replace('width="300" height="300"', 'width="60" height="60"')
+
+st.set_page_config(page_title="Green Button CO\u2082e Calculator", layout="wide", page_icon=str(_svg_path))
+
+st.markdown(
+    f'<h1 style="display:flex;align-items:center;gap:0.5rem">'
+    f'Green Button CO\u2082e Calculator {_svg_icon}'
+    f'</h1>',
+    unsafe_allow_html=True,
+)
+st.markdown("Upload PG&E 'Green Button' CSV files to visualize your CO\u2082e emissions over time.")
 
 # --- Session state ---
 if "electric_df" not in st.session_state:
@@ -19,90 +35,126 @@ if "electric_df" not in st.session_state:
     )
 if "gas_df" not in st.session_state:
     st.session_state.gas_df = pd.DataFrame(columns=["date", "therms", "co2_kg"])
-if "processed_electric" not in st.session_state:
-    st.session_state.processed_electric = set()
-if "processed_gas" not in st.session_state:
-    st.session_state.processed_gas = set()
+if "processed_files" not in st.session_state:
+    st.session_state.processed_files = set()
+
+
+def make_region_map(geojson):
+    lats, lons = [], []
+    for polygon in geojson["coordinates"]:
+        for ring in polygon:
+            for lon, lat in ring:
+                lons.append(lon)
+                lats.append(lat)
+            lons.append(None)
+            lats.append(None)
+
+    fig = go.Figure(go.Scattermapbox(
+        lat=lats, lon=lons,
+        mode="lines",
+        line=dict(color="steelblue", width=2),
+        hoverinfo="none",
+    ))
+    fig.update_layout(
+        mapbox=dict(style="open-street-map", zoom=5,
+                    center=dict(lat=37.5, lon=-120.5)),
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=280,
+        showlegend=False,
+    )
+    return fig
+
+
+with st.sidebar:
+    st.header("How to use this app")
+
+    st.subheader("Step 1 — Download your data from PG&E")
+    st.markdown(
+        "Log in to your PG&E account at [pge.com](https://www.pge.com) and navigate to "
+        "**Usage and Rates** → **Energy Use Details** → **Green Button**. "
+        "Download results in CSV format for a bill period or a range of days. "
+        "If you want, delete your name, address, and account number from the files."
+    )
+
+    st.subheader("Step 2 — Upload your files")
+    st.markdown(
+        "Use the upload widget on this page to upload one or more CSV files "
+        "of electric and/or gas usage data."
+    )
+
+    st.subheader("Step 3 — View your data")
+    st.markdown(
+        "Use the plots to inspect your CO\u2082e emissions over time. "
+        "Emissions from natural gas use can be displayed when the time resolution "
+        "is set to 'Daily'. The two plots at the bottom of the page show averages "
+        "at the daily and weekly levels."
+    )
+
+    st.divider()
+
+    st.subheader("Supported region")
+    st.markdown(
+        "Calculations are only valid for customers in the **CAISO_NORTH** grid region,"
+        "which covers most of PG&E's service territory in Northern and Central California."
+    )
+    st.plotly_chart(make_region_map(_caiso_geojson), use_container_width=True)
+
+    st.divider()
+
+    st.subheader("Note on GHG intensity values")
+    st.markdown(
+        "The electricity emissions factors come from [WattTime](https://www.watttime.org)'s "
+        "`co2_moer` signal for the CAISO_NORTH region as a whole. If you are enrolled in a "
+        "**Community Choice Aggregation (CCA)** program, the actual carbon intensity "
+        "of your electricity supply may differ from what this app shows."
+    )
+
 
 # --- File upload section ---
-col1, col2 = st.columns(2)
+uploaded_files = st.file_uploader(
+    "Upload PG&E CSV file(s)",
+    type="csv",
+    accept_multiple_files=True,
+    key="file_uploader",
+)
 
-with col1:
-    st.subheader("Electric Usage")
-    electric_files = st.file_uploader(
-        "Upload PG&E electric CSV(s)",
-        type="csv",
-        accept_multiple_files=True,
-        key="electric_uploader",
-    )
-
-with col2:
-    st.subheader("Natural Gas Usage")
-    gas_files = st.file_uploader(
-        "Upload PG&E gas CSV(s)",
-        type="csv",
-        accept_multiple_files=True,
-        key="gas_uploader",
-    )
-
-# Process new electric files
-for f in electric_files or []:
+# Process new files
+for f in uploaded_files or []:
     file_id = f"{f.name}:{f.size}"
-    if file_id not in st.session_state.processed_electric:
+    if file_id not in st.session_state.processed_files:
         with st.spinner(f"Processing {f.name}..."):
             try:
                 resp = requests.post(
-                    f"{API_URL}/process",
+                    f"{API_URL}/process_auto",
                     files={"file": (f.name, f.getvalue(), "text/csv")},
                     timeout=120,
                 )
                 resp.raise_for_status()
-                records = resp.json()["records"]
-                new_df = pd.DataFrame(records)[
-                    ["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
-                ]
-                new_df["timestamp"] = pd.to_datetime(new_df["timestamp"])
-                combined = pd.concat(
-                    [st.session_state.electric_df, new_df]
-                ).drop_duplicates(subset=["timestamp"])
-                st.session_state.electric_df = (
-                    combined.sort_values("timestamp").reset_index(drop=True)
-                )
-                st.session_state.processed_electric.add(file_id)
-                st.success(f"Loaded {len(records)} records from {f.name}")
-            except requests.exceptions.HTTPError as e:
-                detail = ""
-                try:
-                    detail = e.response.json().get("detail", "")
-                except Exception:
-                    pass
-                st.error(f"Error processing {f.name}: {e}" + (f"\n\n{detail}" if detail else ""))
-            except Exception as e:
-                st.error(f"Error processing {f.name}: {e}")
-
-# Process new gas files
-for f in gas_files or []:
-    file_id = f"{f.name}:{f.size}"
-    if file_id not in st.session_state.processed_gas:
-        with st.spinner(f"Processing {f.name}..."):
-            try:
-                resp = requests.post(
-                    f"{API_URL}/process_gas",
-                    files={"file": (f.name, f.getvalue(), "text/csv")},
-                    timeout=120,
-                )
-                resp.raise_for_status()
-                records = resp.json()["records"]
-                new_df = pd.DataFrame(records)[["date", "therms", "co2_kg"]]
-                new_df["date"] = pd.to_datetime(new_df["date"])
-                combined = pd.concat(
-                    [st.session_state.gas_df, new_df]
-                ).drop_duplicates(subset=["date"])
-                st.session_state.gas_df = (
-                    combined.sort_values("date").reset_index(drop=True)
-                )
-                st.session_state.processed_gas.add(file_id)
-                st.success(f"Loaded {len(records)} records from {f.name}")
+                data = resp.json()
+                records = data["records"]
+                file_type = data["file_type"]
+                if file_type == "electric":
+                    new_df = pd.DataFrame(records)[
+                        ["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
+                    ]
+                    new_df["timestamp"] = pd.to_datetime(new_df["timestamp"])
+                    combined = pd.concat(
+                        [st.session_state.electric_df, new_df]
+                    ).drop_duplicates(subset=["timestamp"])
+                    st.session_state.electric_df = (
+                        combined.sort_values("timestamp").reset_index(drop=True)
+                    )
+                else:  # gas
+                    new_df = pd.DataFrame(records)[["date", "therms", "co2_kg"]]
+                    new_df["date"] = pd.to_datetime(new_df["date"])
+                    combined = pd.concat(
+                        [st.session_state.gas_df, new_df]
+                    ).drop_duplicates(subset=["date"])
+                    st.session_state.gas_df = (
+                        combined.sort_values("date").reset_index(drop=True)
+                    )
+                st.session_state.processed_files.add(file_id)
+                st.success(f"Loaded {len(records)} {file_type} records from {f.name}")
             except requests.exceptions.HTTPError as e:
                 detail = ""
                 try:
@@ -123,7 +175,7 @@ if electric_df.empty and gas_df.empty:
 # --- Resolution toggle ---
 resolution = st.radio("Time resolution", ["15 min", "Hourly", "Daily"], horizontal=True)
 
-st.subheader(f"kg CO\u2082e emitted, {resolution} resolution")
+st.subheader(f"kg CO\u2082e emitted, {resolution.lower()} resolution")
 
 # --- Aggregate electric data ---
 def aggregate_electric(df: pd.DataFrame, res: str) -> pd.DataFrame:
@@ -243,7 +295,14 @@ def make_summary_fig(elec: pd.DataFrame, gas: pd.DataFrame, res: str) -> go.Figu
     fig.update_yaxes(title_text="kWh", row=2, col=1, secondary_y=False)
     if not elec.empty:
         fig.update_yaxes(title_text="kg CO\u2082e/kWh", row=2, col=1, secondary_y=True)
-    fig.update_layout(height=400, hovermode="x unified", margin=dict(t=10))
+    fig.update_xaxes(
+        tickfont=dict(color="black"),
+        title_font=dict(color="black"),
+        showgrid=True,
+        gridcolor="rgba(0,0,0,0.12)",
+    )
+    fig.update_yaxes(tickfont=dict(color="black"), title_font=dict(color="black"))
+    fig.update_layout(height=400, hovermode="x unified", margin=dict(t=10), font=dict(color="black"))
     return fig
 
 
@@ -274,7 +333,7 @@ if resolution in ("15 min", "Hourly"):
                 line=dict(color="black"),
                 fill="tozeroy",
                 fillcolor="rgba(128,128,128,0.15)",
-                legendrank=4,
+                legendrank=1,
             ),
             row=1,
             col=1,
@@ -287,7 +346,7 @@ else:  # Daily
                 y=elec["co2e_kg"],
                 name="Electric CO\u2082e (kg)",
                 marker_color="black",
-                legendrank=4,
+                legendrank=1,
             ),
             row=1,
             col=1,
@@ -299,7 +358,7 @@ else:  # Daily
                 y=gas["co2_kg"],
                 name="Gas CO\u2082 (kg)",
                 marker_color="#d30000",
-                legendrank=3,
+                legendrank=2,
             ),
             row=1,
             col=1,
@@ -315,7 +374,8 @@ if not elec.empty:
             y=elec["kwh"],
             name="Electricity (kWh)",
             marker_color="#aec7e8",
-            legendrank=2,
+            legendrank=3,
+            legend="legend2",
         ),
         row=2,
         col=1,
@@ -328,7 +388,8 @@ if not elec.empty:
             name="Carbon Intensity (kg CO\u2082e/kWh)",
             line=dict(color="green"),
             mode="lines",
-            legendrank=1,
+            legendrank=4,
+            legend="legend2",
         ),
         row=2,
         col=1,
@@ -340,20 +401,29 @@ fig.update_yaxes(title_text="CO\u2082e (kg)", row=1, col=1)
 fig.update_yaxes(title_text="kWh", row=2, col=1, secondary_y=False)
 if not elec.empty:
     fig.update_yaxes(title_text="kg CO\u2082e/kWh", row=2, col=1, secondary_y=True)
+fig.update_xaxes(
+    tickfont=dict(color="black"),
+    title_font=dict(color="black"),
+    showgrid=True,
+    gridcolor="rgba(0,0,0,0.12)",
+)
+fig.update_yaxes(tickfont=dict(color="black"), title_font=dict(color="black"))
 
 # Enforce legend order by controlling fig.data position
 _name_rank = {
-    "Electric CO\u2082e (kg)": 1,
-    "Gas CO\u2082 (kg)": 0,
-    "Electricity (kWh)": 2,
-    "Carbon Intensity (kg CO\u2082e/kWh)": 3,
+    "Electric CO\u2082e (kg)": 3,
+    "Gas CO\u2082 (kg)": 2,
+    "Electricity (kWh)": 1,
+    "Carbon Intensity (kg CO\u2082e/kWh)": 0,
 }
 fig.data = tuple(sorted(fig.data, key=lambda t: _name_rank.get(t.name, -1), reverse=True))
 
 fig.update_layout(
     height=700,
     hovermode="x unified",
+    font=dict(color="black"),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    legend2=dict(orientation="h", yanchor="top", y=0.44, xanchor="right", x=1),
 )
 
 st.plotly_chart(fig, use_container_width=True)

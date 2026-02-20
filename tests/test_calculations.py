@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from app.calculations import (
+    detect_pge_file_type,
     parse_pge_csv,
     join_usage_with_intensity,
     calculate_emissions,
@@ -9,6 +10,32 @@ from app.calculations import (
     LBS_PER_MWH_TO_KG_PER_KWH,
     KG_TO_LBS,
 )
+
+
+# ---------------------------------------------------------------------------
+# detect_pge_file_type
+# ---------------------------------------------------------------------------
+
+class TestDetectPgeFileType:
+    def test_electric_csv_returns_electric(self, minimal_pge_csv_bytes):
+        assert detect_pge_file_type(minimal_pge_csv_bytes) == "electric"
+
+    def test_gas_csv_returns_gas(self, minimal_pge_gas_csv_bytes):
+        assert detect_pge_file_type(minimal_pge_gas_csv_bytes) == "gas"
+
+    def test_missing_type_header_raises(self):
+        bad_csv = b"account,,,\nname,Test,,\nno header here\n"
+        with pytest.raises(ValueError, match="TYPE,"):
+            detect_pge_file_type(bad_csv)
+
+    def test_unrecognized_type_values_raises(self):
+        csv = (
+            b"account_number,,,\n"
+            b"TYPE,DATE,START TIME,END TIME,USAGE,NOTES\n"
+            b"Water usage,2024-01-15,00:00,00:15,10.0,\n"
+        )
+        with pytest.raises(ValueError, match="Electric usage"):
+            detect_pge_file_type(csv)
 
 
 # ---------------------------------------------------------------------------

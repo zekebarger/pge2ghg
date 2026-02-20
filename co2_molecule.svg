@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+  <!-- Green filled circle -->
+  <circle cx="150" cy="150" r="140" fill="#8dc63f"/>
+
+  <!-- CO2 molecule: O=C=O -->
+
+  <!-- Double bond left -->
+  <line x1="94" y1="141" x2="120" y2="141" stroke="white" stroke-width="5.2"/>
+  <line x1="94" y1="159" x2="120" y2="159" stroke="white" stroke-width="5.2"/>
+
+  <!-- Double bond right -->
+  <line x1="180" y1="141" x2="206" y2="141" stroke="white" stroke-width="5.2"/>
+  <line x1="180" y1="159" x2="206" y2="159" stroke="white" stroke-width="5.2"/>
+
+  <!-- Left oxygen atom -->
+  <circle cx="72" cy="150" r="26" fill="white"/>
+
+  <!-- Carbon atom (larger) -->
+  <circle cx="150" cy="150" r="34" fill="white"/>
+
+  <!-- Right oxygen atom -->
+  <circle cx="228" cy="150" r="26" fill="white"/>
+</svg>

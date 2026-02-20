@@ -8,6 +8,7 @@ import pandas as pd
 from app.database import engine, get_db, Base
 from app.models import WattTimeRecord, WattTimeRecordOut, ProcessingResult, GasProcessingResult
 from app.calculations import (
+    detect_pge_file_type,
     parse_pge_csv,
     join_usage_with_intensity,
     calculate_emissions,
@@ -144,6 +145,82 @@ async def process_gas_csv(file: UploadFile = File(...)):
     logger.info("Gas processing complete: %d records, %.4f therms, %.4f kg CO2",
                 result["records_processed"], result["total_therms"], result["total_co2_kg"])
     return result
+
+
+@app.post("/process_auto")
+async def process_auto_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    Upload any PG&E Green Button CSV — electric or gas — and have it processed
+    automatically. The file type is detected from the TYPE column values.
+    Returns the same payload as /process or /process_gas, plus a 'file_type' key
+    ('electric' or 'gas').
+    """
+    file_bytes = await file.read()
+    logger.info("Received file for auto-detection: %s (%d bytes)", file.filename, len(file_bytes))
+
+    try:
+        file_type = detect_pge_file_type(file_bytes)
+    except ValueError as e:
+        logger.error("Failed to detect PG&E file type: %s", e)
+        raise HTTPException(status_code=400, detail=str(e))
+
+    logger.info("Detected file type: %s", file_type)
+
+    if file_type == "electric":
+        try:
+            df_usage = parse_pge_csv(file_bytes)
+        except ValueError as e:
+            logger.error("Failed to parse PG&E electric CSV: %s", e)
+            raise HTTPException(status_code=400, detail=str(e))
+
+        start_dt = df_usage["timestamp"].min().to_pydatetime()
+        end_dt = df_usage["timestamp"].max().to_pydatetime()
+
+        try:
+            watttime.fetch_and_store_intensity(db, start_dt, end_dt)
+        except Exception as e:
+            logger.error("WattTime API error: %s", e)
+            raise HTTPException(status_code=502, detail=f"WattTime API error: {e}")
+
+        intensity_rows = (
+            db.query(WattTimeRecord)
+            .filter(
+                WattTimeRecord.point_time >= start_dt,
+                WattTimeRecord.point_time <= end_dt,
+            )
+            .order_by(WattTimeRecord.point_time)
+            .all()
+        )
+        if not intensity_rows:
+            raise HTTPException(
+                status_code=502,
+                detail="No intensity data available for the uploaded date range.",
+            )
+
+        df_intensity = pd.DataFrame(
+            [{"timestamp": r.point_time, "value_lbs_per_mwh": r.value_lbs_per_mwh} for r in intensity_rows]
+        )
+
+        try:
+            df_joined = join_usage_with_intensity(df_usage, df_intensity)
+        except ValueError as e:
+            logger.error("Failed to join usage with intensity: %s", e)
+            raise HTTPException(status_code=422, detail=str(e))
+
+        result = build_result(calculate_emissions(df_joined))
+        result["file_type"] = "electric"
+        return result
+
+    else:  # gas
+        try:
+            df_usage = parse_pge_gas_csv(file_bytes)
+        except ValueError as e:
+            logger.error("Failed to parse PG&E gas CSV: %s", e)
+            raise HTTPException(status_code=400, detail=str(e))
+
+        result = build_gas_result(calculate_gas_emissions(df_usage))
+        result["file_type"] = "gas"
+        return result
 
 
 @app.get("/intensity", response_model=List[WattTimeRecordOut])
