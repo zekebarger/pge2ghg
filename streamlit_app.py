@@ -295,7 +295,7 @@ def make_summary_fig(elec: pd.DataFrame, gas: pd.DataFrame, res: str) -> go.Figu
     fig.update_yaxes(title_text="kWh", row=2, col=1, secondary_y=False)
     if not elec.empty:
         fig.update_yaxes(title_text="kg CO\u2082e/kWh", row=2, col=1, secondary_y=True)
-    fig.update_layout(height=400, hovermode="x unified", margin=dict(t=10))
+    fig.update_layout(height=400, hovermode="x unified", margin=dict(t=10), font=dict(color="black"))
     return fig
 
 
@@ -326,7 +326,7 @@ if resolution in ("15 min", "Hourly"):
                 line=dict(color="black"),
                 fill="tozeroy",
                 fillcolor="rgba(128,128,128,0.15)",
-                legendrank=4,
+                legendrank=1,
             ),
             row=1,
             col=1,
@@ -339,7 +339,7 @@ else:  # Daily
                 y=elec["co2e_kg"],
                 name="Electric CO\u2082e (kg)",
                 marker_color="black",
-                legendrank=4,
+                legendrank=1,
             ),
             row=1,
             col=1,
@@ -351,7 +351,7 @@ else:  # Daily
                 y=gas["co2_kg"],
                 name="Gas CO\u2082 (kg)",
                 marker_color="#d30000",
-                legendrank=3,
+                legendrank=2,
             ),
             row=1,
             col=1,
@@ -367,7 +367,8 @@ if not elec.empty:
             y=elec["kwh"],
             name="Electricity (kWh)",
             marker_color="#aec7e8",
-            legendrank=2,
+            legendrank=3,
+            legend="legend2",
         ),
         row=2,
         col=1,
@@ -380,7 +381,8 @@ if not elec.empty:
             name="Carbon Intensity (kg CO\u2082e/kWh)",
             line=dict(color="green"),
             mode="lines",
-            legendrank=1,
+            legendrank=4,
+            legend="legend2",
         ),
         row=2,
         col=1,
@@ -395,17 +397,19 @@ if not elec.empty:
 
 # Enforce legend order by controlling fig.data position
 _name_rank = {
-    "Electric CO\u2082e (kg)": 1,
-    "Gas CO\u2082 (kg)": 0,
-    "Electricity (kWh)": 2,
-    "Carbon Intensity (kg CO\u2082e/kWh)": 3,
+    "Electric CO\u2082e (kg)": 3,
+    "Gas CO\u2082 (kg)": 2,
+    "Electricity (kWh)": 1,
+    "Carbon Intensity (kg CO\u2082e/kWh)": 0,
 }
 fig.data = tuple(sorted(fig.data, key=lambda t: _name_rank.get(t.name, -1), reverse=True))
 
 fig.update_layout(
     height=700,
     hovermode="x unified",
+    font=dict(color="black"),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    legend2=dict(orientation="h", yanchor="top", y=0.44, xanchor="right", x=1),
 )
 
 st.plotly_chart(fig, use_container_width=True)
