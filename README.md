@@ -1,8 +1,8 @@
-# GHG Emissions Tracker
+# Green Button CO₂e Calculator
 
 **Live app:** [green-button-co2e.com](https://green-button-co2e.com)
 
-A FastAPI + Streamlit app that calculates CO₂ emissions from 
+A FastAPI + Streamlit app that calculates CO₂e emissions from 
 PG&E "Green Button" CSV exports. It supports two energy types:
 
 - **Electricity** — accepts a PG&E electricity usage CSV, fetches time-varying marginal CO₂ intensity from the [WattTime](https://www.watttime.org/) API, and calculates emissions for each 15-minute interval. WattTime data is cached in PostgreSQL so repeat uploads covering the same date range don't hit the API again.
