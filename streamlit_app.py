@@ -1,4 +1,6 @@
+import json
 import os
+import pathlib
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -7,6 +9,10 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
+
+_geojson_path = pathlib.Path(__file__).parent / "data" / "caiso_north.geojson"
+with open(_geojson_path) as f:
+    _caiso_geojson = json.load(f)
 
 st.set_page_config(page_title="GHG Emissions Tracker", layout="wide")
 st.title("GHG Emissions Tracker")
@@ -23,6 +29,71 @@ if "processed_electric" not in st.session_state:
     st.session_state.processed_electric = set()
 if "processed_gas" not in st.session_state:
     st.session_state.processed_gas = set()
+
+
+def make_region_map(geojson):
+    lats, lons = [], []
+    for polygon in geojson["coordinates"]:
+        outer_ring = polygon[0]
+        for lon, lat in outer_ring:
+            lons.append(lon)
+            lats.append(lat)
+        lons.append(None)
+        lats.append(None)
+
+    fig = go.Figure(go.Scattermapbox(
+        lat=lats, lon=lons,
+        mode="lines",
+        line=dict(color="steelblue", width=2),
+        hoverinfo="none",
+    ))
+    fig.update_layout(
+        mapbox=dict(style="open-street-map", zoom=5,
+                    center=dict(lat=37.5, lon=-120.5)),
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=280,
+        showlegend=False,
+    )
+    return fig
+
+
+with st.sidebar:
+    st.header("How to use this app")
+
+    st.subheader("Step 1 — Download your data from PG&E")
+    st.markdown(
+        "Log in to your PG&E account at [pge.com](https://www.pge.com) and navigate to "
+        "**My Energy** → **Energy Use Details** → **Green Button** → **Download my data**. "
+        "Download separate CSV files for electricity and natural gas."
+    )
+
+    st.subheader("Step 2 — Upload your files")
+    st.markdown(
+        "Use the upload boxes on the main page to upload one or more electric and/or "
+        "gas CSVs. Multiple files are supported (e.g., if you downloaded data month by month). "
+        "The app will deduplicate files you upload more than once."
+    )
+
+    st.divider()
+
+    st.subheader("Supported region")
+    st.markdown(
+        "This app only works for customers in the **CAISO_NORTH** grid region, which covers "
+        "most of PG&E's service territory in Northern and Central California."
+    )
+    st.plotly_chart(make_region_map(_caiso_geojson), use_container_width=True)
+
+    st.divider()
+
+    st.subheader("Note on GHG intensity values")
+    st.markdown(
+        "The electricity emissions factors come from [WattTime](https://www.watttime.org)'s "
+        "`co2_moer` signal for the CAISO_NORTH region as a whole. If you are enrolled in a "
+        "**Community Choice Aggregation (CCA)** program (e.g., MCE, East Bay Community Energy, "
+        "Peninsula Clean Energy, Silicon Valley Clean Energy, Marin Clean Energy), the actual "
+        "carbon intensity of your electricity supply may differ from what this app shows."
+    )
+
 
 # --- File upload section ---
 col1, col2 = st.columns(2)
