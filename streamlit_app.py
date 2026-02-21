@@ -725,9 +725,76 @@ if not electric_df.empty:
         height=700,
         hovermode="x unified",
         font=dict(color="black"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        legend=dict(orientation="h", yanchor="top", y=0.98, xanchor="right", x=1),
         legend2=dict(orientation="h", yanchor="bottom", y=0.47, xanchor="right", x=1),
     )
     st.plotly_chart(fig_opt, use_container_width=True)
+
+    # Summary plots: electricity usage change by hour of day and by day of week
+    demand_delta = opt_demand - demand
+
+    usage_df = pd.DataFrame({
+        "hour": timestamps.dt.hour.values,
+        "delta": demand_delta,
+    })
+
+    hod_delta = usage_df.groupby("hour")["delta"].sum().reindex(range(24), fill_value=0.0)
+
+    affected_indices = set()
+    for swap in result.swaps:
+        affected_indices.add(swap.hour_i)
+        affected_indices.add(swap.hour_j)
+
+    dow_counts = [0] * 7
+    for idx in affected_indices:
+        dow_counts[timestamps.iloc[idx].dayofweek] += 1
+
+    total_affected = len(affected_indices) or 1
+    dow_pct = [c / total_affected * 100 for c in dow_counts]
+    dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    fig_hod = go.Figure()
+    fig_hod.add_trace(go.Bar(
+        x=list(range(24)), y=hod_delta.values,
+        marker_color="#aec7e8",
+        name="Usage Change (kWh)",
+    ))
+    fig_hod.add_hline(y=0, line=dict(color="black", width=1.5))
+    fig_hod.update_layout(
+        title="Electricity Usage Change by Hour of Day",
+        xaxis_title="Hour of Day",
+        yaxis_title="kWh",
+        xaxis=dict(tickmode="linear", tick0=0, dtick=1,
+                   tickfont=dict(color="black"), title_font=dict(color="black"),
+                   showgrid=True, gridcolor="rgba(0,0,0,0.12)"),
+        yaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black")),
+        font=dict(color="black"),
+        showlegend=False,
+    )
+
+    fig_dow = go.Figure()
+    fig_dow.add_trace(go.Bar(
+        x=dow_names, y=dow_pct,
+        marker_color="#aec7e8",
+        name="% of Shifted Hours",
+    ))
+    fig_dow.update_layout(
+        title="Shifted Hours by Day of Week",
+        xaxis_title="Day of Week",
+        yaxis_title="% of Shifted Hours",
+        xaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black"),
+                   showgrid=True, gridcolor="rgba(0,0,0,0.12)"),
+        yaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black"),
+                   range=[0, max(dow_pct) * 1.15 if any(dow_pct) else 10]),
+        font=dict(color="black"),
+        showlegend=False,
+    )
+
+    col_sum1, col_sum2 = st.columns(2)
+    with col_sum1:
+        st.plotly_chart(fig_hod, use_container_width=True)
+    with col_sum2:
+        st.plotly_chart(fig_dow, use_container_width=True)
+
 else:
     st.info("Upload electric usage data to see load shifting analysis.")
