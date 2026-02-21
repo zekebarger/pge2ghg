@@ -101,7 +101,7 @@ with st.sidebar:
     st.markdown(
         "Select the percentage of electricity usage in your data to shift and the "
         "maximum number of hours by which any single hour of usage can be shifted. "
-        "You can then view a CO\u2082e-optimized version of your electricity usage. "
+        "You can then view a CO\u2082e-optimized version of your hourly electricity usage. "
         "Optimization is performed with a greedy algorithm that swaps pairs of hours."
     )
 
@@ -475,9 +475,14 @@ fig.update_layout(
     height=700,
     hovermode="x unified",
     font=dict(color="black"),
+    margin=dict(b=60),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    legend2=dict(orientation="h", yanchor="bottom", y=0.47, xanchor="right", x=1),
+    legend2=dict(orientation="h", yanchor="top", y=-0.05, xanchor="center", x=0.5),
 )
+if resolution == "Daily":
+    fig.update_xaxes(hoverformat="%a %b %d, %Y")
+else:
+    fig.update_xaxes(hoverformat="%a %b %d, %Y %H:%M")
 
 st.plotly_chart(fig, use_container_width=True)
 
@@ -487,16 +492,16 @@ col_daily, col_weekly = st.columns(2)
 with col_daily:
     if resolution == "Daily":
         st.info(
-            "Choose a different time resolution to show day-level averages."
+            "Choose a different time resolution to show hour-level averages."
         )
     else:
-        st.markdown("**Day-level average**")
+        st.markdown("**Average by Hour of Day**")
         fig_day = make_summary_fig(daily_profile(electric_df, resolution), pd.DataFrame(), resolution)
         fig_day.update_xaxes(tickformat="%H:%M")
         st.plotly_chart(fig_day, use_container_width=True)
 
 with col_weekly:
-    st.markdown("**Week-level average**")
+    st.markdown("**Average by Day of Week**")
     gas_wp = gas_weekly_profile(gas_df) if resolution == "Daily" else pd.DataFrame()
     fig_week = make_summary_fig(weekly_profile(electric_df, resolution), gas_wp, resolution)
     fig_week.update_xaxes(tickformat="%a", dtick=86400000)
@@ -733,6 +738,7 @@ if not electric_df.empty:
         font=dict(color="black"),
         legend=dict(orientation="h", yanchor="top", y=0.56, xanchor="center", x=0.5),
     )
+    fig_opt.update_xaxes(hoverformat="%a %b %d, %Y %H:%M")
     st.plotly_chart(fig_opt, use_container_width=True)
 
     # Summary plots: electricity usage change by hour of day and by day of week
