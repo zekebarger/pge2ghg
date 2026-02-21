@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from optimize import (
+from app.optimize import (
     OptimizationResult,
     SwapRecord,
     compute_emissions,

@@ -206,3 +206,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local Python symlink (not part of the project)
+python3

@@ -5,13 +5,17 @@ WORKDIR /app
 COPY requirements-streamlit.txt .
 RUN pip install --no-cache-dir -r requirements-streamlit.txt
 
-COPY streamlit_app.py .
-COPY optimize.py .
-COPY co2_molecule.svg .
-COPY data/caiso_north.geojson data/caiso_north.geojson
-COPY data/mar_2024_electric_example.csv data/mar_2024_electric_example.csv
-COPY data/mar_2024_gas_example.csv data/mar_2024_gas_example.csv
+# Copy the Streamlit UI (includes charts.py, data_utils.py, co2_molecule.svg, data/)
+COPY ui/ ui/
+
+# Copy the app package so `from app.optimize import …` resolves at runtime
+COPY app/__init__.py app/__init__.py
+COPY app/optimize.py app/optimize.py
+
+# Add the project root to PYTHONPATH so the app package is importable.
+# Streamlit automatically adds ui/ to sys.path when running ui/streamlit_app.py.
+ENV PYTHONPATH=/app
 
 EXPOSE 8501
 
-CMD ["streamlit", "run", "streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "ui/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]

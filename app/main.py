@@ -70,35 +70,14 @@ def health_check():
     return {"status": "ok"}
 
 
-@app.post("/process", response_model=ProcessingResult)
-async def process_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+def _process_electric(df_usage: pd.DataFrame, db: Session) -> dict:
     """
-    Upload a PG&E Green Button CSV to calculate CO₂e emissions.
+    Fetch WattTime intensity for the date range in df_usage, join with usage,
+    compute emissions, and return the result dict from build_result().
 
-    Flow:
-    1. Parse the uploaded PG&E CSV into 15-min (timestamp, kWh) intervals.
-    2. Determine the date range and fetch WattTime marginal intensity for it
-       (only hits the API for ranges not already cached in the DB).
-    3. Join usage with intensity data and compute emissions on the fly.
-    4. Return aggregate summary — nothing is stored except the WattTime cache.
+    Raises HTTPException on WattTime API errors, missing intensity data, or
+    join failures. Factored out so /process and /process_auto share one path.
     """
-    file_bytes = await file.read()
-    logger.info("Received file: %s (%d bytes)", file.filename, len(file_bytes))
-
-    try:
-        df_usage = parse_pge_csv(file_bytes)
-    except ValueError as e:
-        logger.error("Failed to parse PG&E CSV: %s", e)
-        raise HTTPException(status_code=400, detail=str(e))
-
-    logger.info(
-        "Parsed %d usage rows; date range %s to %s",
-        len(df_usage),
-        df_usage["timestamp"].min(),
-        df_usage["timestamp"].max(),
-    )
-
-    # Determine the date range covered by the uploaded data
     start_dt = df_usage["timestamp"].min().to_pydatetime()
     end_dt = df_usage["timestamp"].max().to_pydatetime()
 
@@ -141,8 +120,38 @@ async def process_csv(file: UploadFile = File(...), db: Session = Depends(get_db
 
     logger.info("Joined DataFrame has %d rows", len(df_joined))
 
-    df_result = calculate_emissions(df_joined)
-    result = build_result(df_result)
+    return build_result(calculate_emissions(df_joined))
+
+
+@app.post("/process", response_model=ProcessingResult)
+async def process_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    Upload a PG&E Green Button CSV to calculate CO₂e emissions.
+
+    Flow:
+    1. Parse the uploaded PG&E CSV into 15-min (timestamp, kWh) intervals.
+    2. Determine the date range and fetch WattTime marginal intensity for it
+       (only hits the API for ranges not already cached in the DB).
+    3. Join usage with intensity data and compute emissions on the fly.
+    4. Return aggregate summary — nothing is stored except the WattTime cache.
+    """
+    file_bytes = await file.read()
+    logger.info("Received file: %s (%d bytes)", file.filename, len(file_bytes))
+
+    try:
+        df_usage = parse_pge_csv(file_bytes)
+    except ValueError as e:
+        logger.error("Failed to parse PG&E CSV: %s", e)
+        raise HTTPException(status_code=400, detail=str(e))
+
+    logger.info(
+        "Parsed %d usage rows; date range %s to %s",
+        len(df_usage),
+        df_usage["timestamp"].min(),
+        df_usage["timestamp"].max(),
+    )
+
+    result = _process_electric(df_usage, db)
 
     logger.info(
         "Processing complete: %d records, %.4f kWh, %.4f kg CO2e, %.4f lbs CO2e",
@@ -200,41 +209,7 @@ async def process_auto_csv(file: UploadFile = File(...), db: Session = Depends(g
             logger.error("Failed to parse PG&E electric CSV: %s", e)
             raise HTTPException(status_code=400, detail=str(e))
 
-        start_dt = df_usage["timestamp"].min().to_pydatetime()
-        end_dt = df_usage["timestamp"].max().to_pydatetime()
-
-        try:
-            watttime.fetch_and_store_intensity(db, start_dt, end_dt)
-        except Exception as e:
-            logger.error("WattTime API error: %s", e)
-            raise HTTPException(status_code=502, detail=f"WattTime API error: {e}")
-
-        intensity_rows = (
-            db.query(WattTimeRecord)
-            .filter(
-                WattTimeRecord.point_time >= start_dt,
-                WattTimeRecord.point_time <= end_dt,
-            )
-            .order_by(WattTimeRecord.point_time)
-            .all()
-        )
-        if not intensity_rows:
-            raise HTTPException(
-                status_code=502,
-                detail="No intensity data available for the uploaded date range.",
-            )
-
-        df_intensity = pd.DataFrame(
-            [{"timestamp": r.point_time, "value_lbs_per_mwh": r.value_lbs_per_mwh} for r in intensity_rows]
-        )
-
-        try:
-            df_joined = join_usage_with_intensity(df_usage, df_intensity)
-        except ValueError as e:
-            logger.error("Failed to join usage with intensity: %s", e)
-            raise HTTPException(status_code=422, detail=str(e))
-
-        result = build_result(calculate_emissions(df_joined))
+        result = _process_electric(df_usage, db)
         result["file_type"] = "electric"
         return result
 

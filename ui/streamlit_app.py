@@ -1,30 +1,54 @@
-import json
-import os
 import pathlib
+import sys
 
+# Ensure the project root is on sys.path so `from app.* import …` resolves when
+# running locally as `streamlit run ui/streamlit_app.py` from the project root.
+# Streamlit adds ui/ automatically; this adds the parent directory (project root).
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+import json
+
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from optimize import optimize_demand
+from app.optimize import OptimizationResult, optimize_demand
+from charts import (
+    daily_profile,
+    gas_weekly_profile,
+    make_region_map,
+    make_summary_fig,
+    weekly_profile,
+)
+from data_utils import (
+    API_TIMEOUT,
+    API_URL,
+    ELECTRIC_COLS,
+    GAS_COLS,
+    TOP_N_DAYS,
+    _load_example_files,
+    _merge_api_response,
+    aggregate_electric,
+)
 
-API_URL = os.environ.get("API_URL", "http://localhost:8000")
-API_TIMEOUT = 120  # seconds; WattTime fetches can be slow for long date ranges
-
-ELECTRIC_COLS = ["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
-GAS_COLS = ["date", "therms", "co2_kg"]
-
-TOP_N_DAYS = 7
-
-_geojson_path = pathlib.Path(__file__).parent / "data" / "caiso_north.geojson"
-with open(_geojson_path) as f:
-    _caiso_geojson = json.load(f)
+_geojson_path = pathlib.Path(__file__).parent / "caiso_north.geojson"
+try:
+    with open(_geojson_path) as f:
+        _caiso_geojson = json.load(f)
+except OSError:
+    st.warning(f"Could not load region map: {_geojson_path} not found.")
+    _caiso_geojson = {"coordinates": []}
 
 _svg_path = pathlib.Path(__file__).parent / "co2_molecule.svg"
-_svg_content = _svg_path.read_text()
-_svg_icon = _svg_content.replace('width="300" height="300"', 'width="60" height="60"')
+try:
+    _svg_content = _svg_path.read_text()
+    _svg_icon = _svg_content.replace('width="300" height="300"', 'width="60" height="60"')
+except OSError:
+    _svg_content = ""
+    _svg_icon = ""
 
 st.set_page_config(page_title="Green Button CO\u2082e Calculator", layout="wide", page_icon=str(_svg_path))
 
@@ -48,33 +72,6 @@ if "processed_files" not in st.session_state:
     st.session_state.processed_files = set()
 if "using_example_data" not in st.session_state:
     st.session_state.using_example_data = False
-
-
-def make_region_map(geojson):
-    lats, lons = [], []
-    for polygon in geojson["coordinates"]:
-        for ring in polygon:
-            for lon, lat in ring:
-                lons.append(lon)
-                lats.append(lat)
-            lons.append(None)
-            lats.append(None)
-
-    fig = go.Figure(go.Scattermap(
-        lat=lats, lon=lons,
-        mode="lines",
-        line=dict(color="steelblue", width=2),
-        hoverinfo="none",
-    ))
-    fig.update_layout(
-        map=dict(style="open-street-map", zoom=4.5,
-                 center=dict(lat=37.5, lon=-120.5)),
-        margin=dict(l=0, r=0, t=0, b=0),
-        height=280,
-        showlegend=False,
-    )
-    return fig
-
 
 with st.sidebar:
     st.header("How to use this app")
@@ -126,52 +123,6 @@ with st.sidebar:
         "**Community Choice Aggregation (CCA)** program, the actual carbon intensity "
         "of your electricity supply may differ from what this app shows."
     )
-
-
-def _merge_api_response(data: dict) -> None:
-    """Merge a /process_auto API response into session state DataFrames."""
-    records = data["records"]
-    if data["file_type"] == "electric":
-        new_df = pd.DataFrame(records)[ELECTRIC_COLS]
-        new_df["timestamp"] = pd.to_datetime(new_df["timestamp"])
-        combined = pd.concat(
-            [st.session_state.electric_df, new_df]
-        ).drop_duplicates(subset=["timestamp"])
-        st.session_state.electric_df = combined.sort_values("timestamp").reset_index(drop=True)
-    else:
-        new_df = pd.DataFrame(records)[GAS_COLS]
-        new_df["date"] = pd.to_datetime(new_df["date"])
-        combined = pd.concat(
-            [st.session_state.gas_df, new_df]
-        ).drop_duplicates(subset=["date"])
-        st.session_state.gas_df = combined.sort_values("date").reset_index(drop=True)
-
-
-def _load_example_files():
-    _data_dir = pathlib.Path(__file__).parent / "data"
-    example_files = [
-        "mar_2024_electric_example.csv",
-        "mar_2024_gas_example.csv",
-    ]
-    for filename in example_files:
-        filepath = _data_dir / filename
-        file_bytes = filepath.read_bytes()
-        file_id = f"{filename}:{len(file_bytes)}"
-        if file_id in st.session_state.processed_files:
-            continue
-        with st.spinner(f"Loading {filename}..."):
-            try:
-                resp = requests.post(
-                    f"{API_URL}/process_auto",
-                    files={"file": (filename, file_bytes, "text/csv")},
-                    timeout=API_TIMEOUT,
-                )
-                resp.raise_for_status()
-                _merge_api_response(resp.json())
-                st.session_state.processed_files.add(file_id)
-            except Exception as e:
-                st.error(f"Error loading example file {filename}: {e}")
-
 
 # --- File upload section ---
 uploaded_files = st.file_uploader(
@@ -232,135 +183,6 @@ if electric_df.empty and gas_df.empty:
 resolution = st.radio("Time resolution", ["15 min", "Hourly", "Daily"], horizontal=True)
 
 st.subheader(f"CO\u2082e emissions profile")
-
-# --- Aggregate electric data ---
-def aggregate_electric(df: pd.DataFrame, res: str) -> pd.DataFrame:
-    if df.empty:
-        return df
-    df = df.set_index("timestamp")
-    # Convert UTC timestamps to Pacific time so that x-axis labels and bucket
-    # boundaries align with local time rather than UTC.
-    df.index = df.index.tz_convert("America/Los_Angeles")
-    if res == "15 min":
-        return df.reset_index()
-    rules = {"Hourly": "1h", "Daily": "1D", "Weekly": "W"}
-    agg = df.resample(rules[res]).agg({"kwh": "sum", "co2e_kg": "sum", "emissions_factor_kg_per_kwh": "mean"})
-    return agg.reset_index()
-
-
-# Monday Jan 3 2000, timezone-naive reference anchor for profile x-axes
-REF_WEEK_START = pd.Timestamp("2000-01-03")
-
-
-def daily_profile(df: pd.DataFrame, res: str) -> pd.DataFrame:
-    """Average electric values by time-of-day slot across all days in the data."""
-    if df.empty:
-        return df
-    df = df.copy().set_index("timestamp")
-    df.index = df.index.tz_convert("America/Los_Angeles")
-    if res == "Hourly":
-        df = df.resample("1h").agg({"kwh": "sum", "co2e_kg": "sum", "emissions_factor_kg_per_kwh": "mean"})
-    elif res == "Daily":
-        df = df.resample("1D").agg({"kwh": "sum", "co2e_kg": "sum", "emissions_factor_kg_per_kwh": "mean"})
-    df["slot"] = df.index.hour * 60 + df.index.minute
-    grouped = df.groupby("slot")[["kwh", "co2e_kg", "emissions_factor_kg_per_kwh"]].mean()
-    grouped["timestamp"] = REF_WEEK_START + pd.to_timedelta(grouped.index, unit="min")
-    return grouped.reset_index(drop=True)
-
-
-def weekly_profile(df: pd.DataFrame, res: str) -> pd.DataFrame:
-    """Average electric values by day-of-week (and time slot) across all weeks in the data."""
-    if df.empty:
-        return df
-    df = df.copy().set_index("timestamp")
-    df.index = df.index.tz_convert("America/Los_Angeles")
-    if res == "Hourly":
-        df = df.resample("1h").agg({"kwh": "sum", "co2e_kg": "sum", "emissions_factor_kg_per_kwh": "mean"})
-    elif res == "Daily":
-        df = df.resample("1D").agg({"kwh": "sum", "co2e_kg": "sum", "emissions_factor_kg_per_kwh": "mean"})
-    df["slot"] = df.index.dayofweek * 1440 + df.index.hour * 60 + df.index.minute
-    grouped = df.groupby("slot")[["kwh", "co2e_kg", "emissions_factor_kg_per_kwh"]].mean()
-    grouped["timestamp"] = REF_WEEK_START + pd.to_timedelta(grouped.index, unit="min")
-    return grouped.reset_index(drop=True)
-
-
-def gas_weekly_profile(df: pd.DataFrame) -> pd.DataFrame:
-    """Average gas usage by day-of-week."""
-    if df.empty:
-        return df
-    df = df.copy().set_index("date")
-    df["dow"] = df.index.dayofweek
-    grouped = df.groupby("dow")[["therms", "co2_kg"]].mean()
-    grouped["date"] = REF_WEEK_START + pd.to_timedelta(grouped.index, unit="D")
-    return grouped.reset_index(drop=True)
-
-
-def make_summary_fig(elec: pd.DataFrame, gas: pd.DataFrame, res: str) -> go.Figure:
-    has_gas = not gas.empty
-    use_bars = res == "Daily"
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.12,
-        specs=[[{"secondary_y": False}], [{"secondary_y": True}]],
-    )
-    if not elec.empty:
-        if use_bars:
-            fig.add_trace(
-                go.Bar(x=elec["timestamp"], y=elec["co2e_kg"],
-                       name="Electric CO\u2082e (kg)", marker_color="black", showlegend=False),
-                row=1, col=1,
-            )
-        else:
-            fig.add_trace(
-                go.Scatter(x=elec["timestamp"], y=elec["co2e_kg"],
-                           name="Electric CO\u2082e (kg)", line=dict(color="black"),
-                           fill="tozeroy", fillcolor="rgba(128,128,128,0.15)", showlegend=False),
-                row=1, col=1,
-            )
-    if has_gas:
-        fig.add_trace(
-            go.Bar(x=gas["date"], y=gas["co2_kg"],
-                   name="Gas CO\u2082 (kg)", marker_color="#d30000", showlegend=False),
-            row=1, col=1,
-        )
-    if not elec.empty and has_gas:
-        fig.update_layout(barmode="stack")
-    if not elec.empty:
-        if use_bars:
-            fig.add_trace(
-                go.Bar(x=elec["timestamp"], y=elec["kwh"],
-                       name="Electricity (kWh)", marker_color="#aec7e8", showlegend=False),
-                row=2, col=1, secondary_y=False,
-            )
-        else:
-            fig.add_trace(
-                go.Scatter(x=elec["timestamp"], y=elec["kwh"],
-                           name="Electricity (kWh)", line=dict(color="#aec7e8"),
-                           fill="tozeroy", fillcolor="rgba(174,199,232,0.3)", showlegend=False),
-                row=2, col=1, secondary_y=False,
-            )
-        fig.add_trace(
-            go.Scatter(x=elec["timestamp"], y=elec["emissions_factor_kg_per_kwh"],
-                       name="Carbon Intensity (kg CO\u2082e/kWh)",
-                       line=dict(color="green"), mode="lines", showlegend=False),
-            row=2, col=1, secondary_y=True,
-        )
-    fig.update_yaxes(title_text="CO\u2082e (kg)", row=1, col=1)
-    fig.update_yaxes(title_text="kWh", row=2, col=1, secondary_y=False)
-    if not elec.empty:
-        fig.update_yaxes(title_text="kg CO\u2082e/kWh", row=2, col=1, secondary_y=True)
-    fig.update_xaxes(
-        tickfont=dict(color="black"),
-        title_font=dict(color="black"),
-        showgrid=True,
-        gridcolor="rgba(0,0,0,0.12)",
-    )
-    fig.update_yaxes(tickfont=dict(color="black"), title_font=dict(color="black"))
-    fig.update_layout(height=400, hovermode="x unified", margin=dict(t=10), font=dict(color="black"))
-    return fig
-
 
 elec = aggregate_electric(electric_df, resolution)
 gas = gas_df.copy() if not gas_df.empty else gas_df
@@ -623,7 +445,13 @@ st.subheader("Load Shifting Analysis")
 
 
 @st.cache_data
-def _run_load_shift_optimization(demand, intensity, budget_fraction, max_shift_hours):
+def _run_load_shift_optimization(
+    demand: np.ndarray,
+    intensity: np.ndarray,
+    budget_fraction: float,
+    max_shift_hours: int,
+) -> OptimizationResult:
+    """Run the greedy load-shift optimizer; cached so Streamlit doesn't recompute on every rerun."""
     return optimize_demand(demand, intensity, budget_fraction=budget_fraction, max_shift_hours=max_shift_hours)
 
 
