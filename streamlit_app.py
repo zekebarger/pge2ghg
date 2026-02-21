@@ -99,9 +99,10 @@ with st.sidebar:
 
     st.subheader("Step 4 — Analyze load shifting")
     st.markdown(
-        "Select the percentage of hours in your data to shift "
-        "and the maximum number of hours by which load can be shifted. "
-        "You can then view a CO\u2082e-optimized version of your electricity usage."
+        "Select the percentage of electricity usage in your data to shift and the "
+        "maximum number of hours by which any single hour of usage can be shifted. "
+        "You can then view a CO\u2082e-optimized version of your electricity usage. "
+        "Optimization is performed with a greedy algorithm that swaps pairs of hours."
     )
 
     st.divider()
@@ -617,27 +618,27 @@ if not electric_df.empty:
     col_ls1, col_ls2 = st.columns(2)
     with col_ls1:
         budget_percent = st.number_input(
-            "Percent of hours that can be shifted",
-            min_value=1,
-            max_value=25,
-            value=5,
+            "Percent of electricity usage that can be shifted",
+            min_value=0,
+            max_value=50,
+            value=15,
             step=1,
-            help="Integer between 1 and 25",
+            help="Number between 0 and 50",
             width=300,
         )
         max_shift = st.number_input(
             "Maximum hours by which load can be shifted",
             min_value=1,
             max_value=8,
-            value=4,
+            value=5,
             step=1,
             help="Integer between 1 and 8",
             width=300,
         )
 
     hourly = aggregate_electric(electric_df, "Hourly")
-    demand = hourly["kwh"].values
-    intensity = hourly["emissions_factor_kg_per_kwh"].values
+    demand = hourly["kwh"].fillna(0).values
+    intensity = hourly["emissions_factor_kg_per_kwh"].fillna(0).values
 
     with st.spinner("Running load shift optimization..."):
         result = _run_load_shift_optimization(
@@ -676,7 +677,7 @@ if not electric_df.empty:
         rows=2,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.1,
+        vertical_spacing=0.15,
         subplot_titles=("Optimized Load & Carbon Intensity", "Hourly Emissions Change (kg CO\u2082e)"),
         specs=[[{"secondary_y": True}], [{"secondary_y": False}]],
     )
@@ -708,7 +709,7 @@ if not electric_df.empty:
     fig_opt.add_trace(
         go.Bar(x=timestamps, y=emissions_delta,
                name="Emissions Change (kg CO\u2082e)",
-               marker_color=delta_colors, legend="legend2"),
+               marker_color=delta_colors, showlegend=False),
         row=2, col=1,
     )
     fig_opt.add_hline(y=0, line=dict(color="black", width=1.5), row=2, col=1)
@@ -725,11 +726,8 @@ if not electric_df.empty:
         height=700,
         hovermode="x unified",
         font=dict(color="black"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        legend2=dict(orientation="h", yanchor="bottom", y=0.47, xanchor="right", x=1),
-        margin=dict(t=40),
+        legend=dict(orientation="h", yanchor="top", y=0.56, xanchor="center", x=0.5),
     )
-    fig_opt.update_annotations(yshift=30, selector={"text": "Optimized Load & Carbon Intensity"})
     st.plotly_chart(fig_opt, use_container_width=True)
 
     # Summary plots: electricity usage change by hour of day and by day of week
@@ -747,12 +745,12 @@ if not electric_df.empty:
         affected_indices.add(swap.hour_i)
         affected_indices.add(swap.hour_j)
 
-    dow_counts = [0] * 7
+    dow_kwh = [0.0] * 7
     for idx in affected_indices:
-        dow_counts[timestamps.iloc[idx].dayofweek] += 1
+        dow_kwh[timestamps.iloc[idx].dayofweek] += abs(demand_delta[idx])
 
-    total_affected = len(affected_indices) or 1
-    dow_pct = [c / total_affected * 100 for c in dow_counts]
+    total_kwh_shifted = sum(dow_kwh) or 1.0
+    dow_pct = [kwh / total_kwh_shifted * 100 for kwh in dow_kwh]
     dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
     fig_hod = go.Figure()
@@ -778,12 +776,12 @@ if not electric_df.empty:
     fig_dow.add_trace(go.Bar(
         x=dow_names, y=dow_pct,
         marker_color="black",
-        name="% of Shifted Hours",
+        name="% of kWh Shifted",
     ))
     fig_dow.update_layout(
-        title="Shifted Hours by Day of Week",
+        title="Shifted Load by Day of Week",
         xaxis_title="Day of Week",
-        yaxis_title="% of Shifted Hours",
+        yaxis_title="% of Total kWh Shifted",
         xaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black"),
                    showgrid=True, gridcolor="rgba(0,0,0,0.12)"),
         yaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black"),
