@@ -60,7 +60,7 @@ def make_region_map(geojson):
             lons.append(None)
             lats.append(None)
 
-    fig = go.Figure(go.Scattermapbox(
+    fig = go.Figure(go.Scattermap(
         lat=lats, lon=lons,
         mode="lines",
         line=dict(color="steelblue", width=2),
@@ -115,7 +115,7 @@ with st.sidebar:
         "Calculations are only valid for customers in the **CAISO_NORTH** grid region,"
         "which covers most of PG&E's service territory in Northern and Central California."
     )
-    st.plotly_chart(make_region_map(_caiso_geojson), use_container_width=True)
+    st.plotly_chart(make_region_map(_caiso_geojson), width='stretch')
 
     st.divider()
 
@@ -487,7 +487,7 @@ if resolution == "Daily":
 else:
     fig.update_xaxes(hoverformat="%a %b %d, %Y %H:%M")
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width='stretch')
 
 # --- Typical daily and weekly profiles ---
 col_daily, col_weekly = st.columns(2)
@@ -501,14 +501,14 @@ with col_daily:
         st.markdown("**Average by Hour of Day**")
         fig_day = make_summary_fig(daily_profile(electric_df, resolution), pd.DataFrame(), resolution)
         fig_day.update_xaxes(tickformat="%H:%M")
-        st.plotly_chart(fig_day, use_container_width=True)
+        st.plotly_chart(fig_day, width='stretch')
 
 with col_weekly:
     st.markdown("**Average by Day of Week**")
     gas_wp = gas_weekly_profile(gas_df) if resolution == "Daily" else pd.DataFrame()
     fig_week = make_summary_fig(weekly_profile(electric_df, resolution), gas_wp, resolution)
     fig_week.update_xaxes(tickformat="%a", dtick=86400000)
-    st.plotly_chart(fig_week, use_container_width=True)
+    st.plotly_chart(fig_week, width='stretch')
 
 # Summary results section
 total_elec_co2e = electric_df["co2e_kg"].sum()
@@ -574,7 +574,7 @@ with col_summary:
         showlegend=False,
         margin=dict(t=20, b=20, l=20, r=20),
     )
-    st.plotly_chart(fig_donut, use_container_width=True)
+    st.plotly_chart(fig_donut, width='stretch')
 
 with col_top_days:
     st.markdown(f"**Days with highest total CO\u2082e**")
@@ -615,7 +615,7 @@ with col_top_days:
         tickfont=dict(color="black"),
         title_font=dict(color="black")
     )
-    st.plotly_chart(fig_top_days, use_container_width=True)
+    st.plotly_chart(fig_top_days, width='stretch')
 
 # --- Load Shifting Analysis ---
 st.divider()
@@ -742,7 +742,7 @@ if not electric_df.empty:
         legend=dict(orientation="h", yanchor="top", y=0.56, xanchor="center", x=0.5),
     )
     fig_opt.update_xaxes(hoverformat="%a %b %d, %Y %H:%M")
-    st.plotly_chart(fig_opt, use_container_width=True)
+    st.plotly_chart(fig_opt, width='stretch')
 
     # Summary plots: electricity usage change by hour of day and by day of week
     demand_delta = opt_demand - demand
@@ -806,9 +806,9 @@ if not electric_df.empty:
 
     col_sum1, col_sum2 = st.columns(2)
     with col_sum1:
-        st.plotly_chart(fig_hod, use_container_width=True)
+        st.plotly_chart(fig_hod, width='stretch')
     with col_sum2:
-        st.plotly_chart(fig_dow, use_container_width=True)
+        st.plotly_chart(fig_dow, width='stretch')
 
 else:
     st.info("Upload electric usage data to see load shifting analysis.")
