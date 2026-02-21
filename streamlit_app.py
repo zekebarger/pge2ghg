@@ -94,8 +94,14 @@ with st.sidebar:
     st.markdown(
         "Use the plots to inspect your CO\u2082e emissions over time. "
         "Emissions from natural gas use can be displayed when the time resolution "
-        "is set to 'Daily'. The two plots at the bottom of the page show averages "
-        "at the daily and weekly levels."
+        "is set to 'Daily'."
+    )
+
+    st.subheader("Step 4 — Analyze load shifting")
+    st.markdown(
+        "Select the percentage of hours in your data to shift "
+        "and the maximum number of hours by which load can be shifted. "
+        "You can then view a CO\u2082e-optimized version of your electricity usage."
     )
 
     st.divider()
@@ -614,7 +620,7 @@ if not electric_df.empty:
             "Percent of hours that can be shifted",
             min_value=1,
             max_value=25,
-            value=4,
+            value=5,
             step=1,
             help="Integer between 1 and 25",
             width=300,
@@ -623,7 +629,7 @@ if not electric_df.empty:
             "Maximum hours by which load can be shifted",
             min_value=1,
             max_value=8,
-            value=3,
+            value=4,
             step=1,
             help="Integer between 1 and 8",
             width=300,
@@ -646,5 +652,82 @@ if not electric_df.empty:
             "CO\u2082e savings",
             f"{result.reduction_percent:.1f}% ({result.reduction_absolute:.2f} kg)",
         )
+
+    opt_demand = result.optimized_demand
+    timestamps = hourly["timestamp"]
+
+    # Stacked bar segments for Row 1:
+    #   bottom (light blue) = min(actual, optimized) — the "unchanged" portion
+    #   white cap           = max(0, actual - optimized) — demand shifted away
+    #   gray extension      = max(0, optimized - actual) — demand shifted in
+    bar_bottom      = [float(min(demand[i], opt_demand[i])) for i in range(len(demand))]
+    removal_overlay   = [float(max(0.0, demand[i] - opt_demand[i])) for i in range(len(demand))]
+    addition_overlay    = [float(max(0.0, opt_demand[i] - demand[i])) for i in range(len(demand))]
+    # Per-bar border width: 0 for zero-height bars so no hairline artifacts
+    white_widths    = [1.0 if demand[i] > opt_demand[i] else 0.0 for i in range(len(demand))]
+    # gray_widths     = [1.0 if opt_demand[i] > demand[i] else 0.0 for i in range(len(demand))]
+
+    actual_emissions = demand * intensity
+    optimized_emissions = opt_demand * intensity
+    emissions_delta = optimized_emissions - actual_emissions
+    delta_colors = ["#d62728" if d > 0 else "#2ca02c" for d in emissions_delta]
+
+    fig_opt = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.1,
+        subplot_titles=("Optimized Load & Carbon Intensity", "Hourly Emissions Change (kg CO\u2082e)"),
+        specs=[[{"secondary_y": True}], [{"secondary_y": False}]],
+    )
+    fig_opt.add_trace(
+        go.Bar(x=timestamps, y=bar_bottom, name="Actual Electricity (kWh)",
+               marker=dict(color="#aec7e8"), legendrank=1, legend="legend"),
+        row=1, col=1, secondary_y=False,
+    )
+    fig_opt.add_trace(
+        go.Bar(x=timestamps, y=removal_overlay, name="Reduced Load (kWh)",
+               marker=dict(color="white", line=dict(color="black", width=white_widths),
+                           pattern=dict(shape="/", fgcolor="gray", solidity=0.15)),
+               legendrank=3, legend="legend"),
+        row=1, col=1, secondary_y=False,
+    )
+    fig_opt.add_trace(
+        go.Bar(x=timestamps, y=addition_overlay, name="Added Load (kWh)",
+               marker=dict(color="#919191"),
+               legendrank=4, legend="legend"),
+        row=1, col=1, secondary_y=False,
+    )
+    fig_opt.add_trace(
+        go.Scatter(x=timestamps, y=intensity,
+                   name="Carbon Intensity (kg CO\u2082e/kWh)",
+                   line=dict(color="green"), mode="lines",
+                   legendrank=2, legend="legend"),
+        row=1, col=1, secondary_y=True,
+    )
+    fig_opt.add_trace(
+        go.Bar(x=timestamps, y=emissions_delta,
+               name="Emissions Change (kg CO\u2082e)",
+               marker_color=delta_colors, legend="legend2"),
+        row=2, col=1,
+    )
+    fig_opt.add_hline(y=0, line=dict(color="black", width=1.5), row=2, col=1)
+    fig_opt.update_yaxes(title_text="kWh", row=1, col=1, secondary_y=False)
+    fig_opt.update_yaxes(title_text="kg CO\u2082e/kWh", row=1, col=1, secondary_y=True)
+    fig_opt.update_yaxes(title_text="kg CO\u2082e", row=2, col=1)
+    fig_opt.update_xaxes(
+        tickfont=dict(color="black"), title_font=dict(color="black"),
+        showgrid=True, gridcolor="rgba(0,0,0,0.12)",
+    )
+    fig_opt.update_yaxes(tickfont=dict(color="black"), title_font=dict(color="black"))
+    fig_opt.update_layout(
+        barmode="stack",
+        height=700,
+        hovermode="x unified",
+        font=dict(color="black"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        legend2=dict(orientation="h", yanchor="bottom", y=0.47, xanchor="right", x=1),
+    )
+    st.plotly_chart(fig_opt, use_container_width=True)
 else:
     st.info("Upload electric usage data to see load shifting analysis.")
