@@ -35,7 +35,7 @@ services:
     volumes:
       # Mount our local data/ folder into the container at /data
       # This means you can swap out the CSV without rebuilding the image.
-      - ./data:/data
+      - ./ui/data:/data
     depends_on:
       db:
         condition: service_healthy   # Wait for Postgres to be ready before starting the app

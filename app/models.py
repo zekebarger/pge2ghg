@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, date
 from typing import List
 from sqlalchemy import Column, Integer, Float, DateTime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from app.database import Base
 
 
@@ -24,8 +24,7 @@ class WattTimeRecordOut(BaseModel):
     value_lbs_per_mwh: float
     fetched_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EmissionsRecord(BaseModel):

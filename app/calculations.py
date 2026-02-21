@@ -25,6 +25,18 @@ COL_KWH = "USAGE (kWh)"
 COL_THERMS = "USAGE (therms)"
 
 
+def _find_header_row(lines: list) -> int:
+    """
+    Return the index of the PG&E CSV header row (the line starting with 'TYPE,').
+
+    Raises ValueError if the marker is not found.
+    """
+    for i, line in enumerate(lines):
+        if line.startswith(CSV_HEADER_MARKER):
+            return i
+    raise ValueError("Could not find 'TYPE,' header row in the uploaded CSV.")
+
+
 def detect_pge_file_type(file_bytes: bytes) -> str:
     """
     Detect whether a PG&E CSV contains electric or gas data.
@@ -35,16 +47,7 @@ def detect_pge_file_type(file_bytes: bytes) -> str:
     """
     text = file_bytes.decode("utf-8", errors="replace")
     lines = text.splitlines()
-
-    header_line = None
-    for i, line in enumerate(lines):
-        if line.startswith(CSV_HEADER_MARKER):
-            header_line = i
-            break
-
-    if header_line is None:
-        raise ValueError("Could not find 'TYPE,' header row in the uploaded CSV.")
-
+    header_line = _find_header_row(lines)
     csv_body = "\n".join(lines[header_line:])
     df = pd.read_csv(io.StringIO(csv_body))
 
@@ -71,14 +74,7 @@ def parse_pge_csv(file_bytes: bytes) -> pd.DataFrame:
 
     # Find the line index of the real header row (starts with "TYPE,")
     lines = text.splitlines()
-    header_line = None
-    for i, line in enumerate(lines):
-        if line.startswith(CSV_HEADER_MARKER):
-            header_line = i
-            break
-
-    if header_line is None:
-        raise ValueError("Could not find 'TYPE,' header row in the uploaded CSV.")
+    header_line = _find_header_row(lines)
 
     # Re-parse from the header row onward
     csv_body = "\n".join(lines[header_line:])
@@ -181,15 +177,7 @@ def parse_pge_gas_csv(file_bytes: bytes) -> pd.DataFrame:
     text = file_bytes.decode("utf-8", errors="replace")
 
     lines = text.splitlines()
-    header_line = None
-    for i, line in enumerate(lines):
-        if line.startswith(CSV_HEADER_MARKER):
-            header_line = i
-            break
-
-    if header_line is None:
-        raise ValueError("Could not find 'TYPE,' header row in the uploaded CSV.")
-
+    header_line = _find_header_row(lines)
     csv_body = "\n".join(lines[header_line:])
     df = pd.read_csv(io.StringIO(csv_body))
 

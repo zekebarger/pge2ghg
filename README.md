@@ -23,14 +23,19 @@ pge2ghg/
 │   ├── models.py                  # SQLAlchemy table + Pydantic schemas
 │   ├── database.py                # DB connection and session management
 │   ├── watttime.py                # WattTime API client + DB caching
-│   └── calculations.py            # CSV parsing and emissions logic (pure functions)
+│   ├── calculations.py            # CSV parsing and emissions logic (pure functions)
+│   └── optimize.py                # Greedy load-shift optimizer
+├── ui/
+│   ├── streamlit_app.py           # Streamlit UI entrypoint (page layout, session state)
+│   ├── charts.py                  # Plotly chart builders and profile aggregators
+│   ├── data_utils.py              # Data transforms and API helpers
+│   ├── co2_molecule.svg           # App icon
+│   └── caiso_north.geojson        # CAISO_NORTH multipolygon
 ├── tests/
 │   ├── conftest.py                # Shared fixtures
 │   ├── test_calculations.py
-│   └── test_gas_calculations.py
-├── data/                          # Sample PG&E CSV files
-├── streamlit_app.py               # Streamlit UI
-├── co2_molecule.svg               # App icon
+│   ├── test_gas_calculations.py
+│   └── test_optimize.py
 ├── Dockerfile                     # FastAPI container
 ├── Dockerfile.streamlit           # Streamlit container
 ├── docker-compose.yml
@@ -202,7 +207,7 @@ Works with any Postgres client (DBeaver, TablePlus, psql, etc.).
 
 ## Streamlit UI
 
-A Streamlit front-end is included (`streamlit_app.py`). It is served as a separate container via `docker-compose.yml`.
+A Streamlit front-end is included in `ui/`. It is served as a separate container via `docker-compose.yml`.
 
 Access it at **http://localhost:8501** while the containers are running (or at [green-button-co2e.com](https://green-button-co2e.com) for the hosted version).
 
