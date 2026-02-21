@@ -34,7 +34,10 @@ st.markdown(
     f'</h1>',
     unsafe_allow_html=True,
 )
-st.markdown("Upload PG&E 'Green Button' CSV files to visualize your CO\u2082e emissions over time.")
+st.markdown(
+    "Upload PG&E 'Green Button' CSV files to visualize the CO\u2082e emissions "
+    "from your energy usage over time."
+)
 
 # --- Session state ---
 if "electric_df" not in st.session_state:
