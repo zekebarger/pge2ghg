@@ -725,9 +725,11 @@ if not electric_df.empty:
         height=700,
         hovermode="x unified",
         font=dict(color="black"),
-        legend=dict(orientation="h", yanchor="top", y=0.98, xanchor="right", x=1),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         legend2=dict(orientation="h", yanchor="bottom", y=0.47, xanchor="right", x=1),
+        margin=dict(t=40),
     )
+    fig_opt.update_annotations(yshift=30, selector={"text": "Optimized Load & Carbon Intensity"})
     st.plotly_chart(fig_opt, use_container_width=True)
 
     # Summary plots: electricity usage change by hour of day and by day of week
@@ -775,7 +777,7 @@ if not electric_df.empty:
     fig_dow = go.Figure()
     fig_dow.add_trace(go.Bar(
         x=dow_names, y=dow_pct,
-        marker_color="#aec7e8",
+        marker_color="black",
         name="% of Shifted Hours",
     ))
     fig_dow.update_layout(
