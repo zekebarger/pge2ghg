@@ -67,8 +67,8 @@ def make_region_map(geojson):
         hoverinfo="none",
     ))
     fig.update_layout(
-        mapbox=dict(style="open-street-map", zoom=5,
-                    center=dict(lat=37.5, lon=-120.5)),
+        map=dict(style="open-street-map", zoom=4.5,
+                 center=dict(lat=37.5, lon=-120.5)),
         margin=dict(l=0, r=0, t=0, b=0),
         height=280,
         showlegend=False,
