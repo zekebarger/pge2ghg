@@ -8,11 +8,15 @@ import requests
 import streamlit as st
 from plotly.subplots import make_subplots
 
+from optimize import optimize_demand
+
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
 API_TIMEOUT = 120  # seconds; WattTime fetches can be slow for long date ranges
 
 ELECTRIC_COLS = ["timestamp", "kwh", "emissions_factor_kg_per_kwh", "co2e_kg"]
 GAS_COLS = ["date", "therms", "co2_kg"]
+
+TOP_N_DAYS = 7
 
 _geojson_path = pathlib.Path(__file__).parent / "data" / "caiso_north.geojson"
 with open(_geojson_path) as f:
@@ -90,8 +94,15 @@ with st.sidebar:
     st.markdown(
         "Use the plots to inspect your CO\u2082e emissions over time. "
         "Emissions from natural gas use can be displayed when the time resolution "
-        "is set to 'Daily'. The two plots at the bottom of the page show averages "
-        "at the daily and weekly levels."
+        "is set to 'Daily'."
+    )
+
+    st.subheader("Step 4 — Analyze load shifting")
+    st.markdown(
+        "Select the percentage of electricity usage in your data to shift and the "
+        "maximum number of hours by which any single hour of usage can be shifted. "
+        "You can then view a CO\u2082e-optimized version of your hourly electricity usage. "
+        "Optimization is performed with a greedy algorithm that swaps pairs of hours."
     )
 
     st.divider()
@@ -217,7 +228,7 @@ if electric_df.empty and gas_df.empty:
 # --- Resolution toggle ---
 resolution = st.radio("Time resolution", ["15 min", "Hourly", "Daily"], horizontal=True)
 
-st.subheader(f"kg CO\u2082e emitted, {resolution.lower()} resolution")
+st.subheader(f"CO\u2082e emissions profile")
 
 # --- Aggregate electric data ---
 def aggregate_electric(df: pd.DataFrame, res: str) -> pd.DataFrame:
@@ -464,25 +475,337 @@ fig.update_layout(
     height=700,
     hovermode="x unified",
     font=dict(color="black"),
+    margin=dict(b=60),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    legend2=dict(orientation="h", yanchor="bottom", y=0.47, xanchor="right", x=1),
+    legend2=dict(orientation="h", yanchor="top", y=-0.05, xanchor="center", x=0.5),
 )
+if resolution == "Daily":
+    fig.update_xaxes(hoverformat="%a %b %d, %Y")
+else:
+    fig.update_xaxes(hoverformat="%a %b %d, %Y %H:%M")
 
 st.plotly_chart(fig, use_container_width=True)
 
 # --- Typical daily and weekly profiles ---
-st.divider()
 col_daily, col_weekly = st.columns(2)
 
 with col_daily:
-    st.markdown("**Day-level average**")
-    fig_day = make_summary_fig(daily_profile(electric_df, resolution), pd.DataFrame(), resolution)
-    fig_day.update_xaxes(tickformat="%H:%M")
-    st.plotly_chart(fig_day, use_container_width=True)
+    if resolution == "Daily":
+        st.info(
+            "Choose a different time resolution to show hour-level averages."
+        )
+    else:
+        st.markdown("**Average by Hour of Day**")
+        fig_day = make_summary_fig(daily_profile(electric_df, resolution), pd.DataFrame(), resolution)
+        fig_day.update_xaxes(tickformat="%H:%M")
+        st.plotly_chart(fig_day, use_container_width=True)
 
 with col_weekly:
-    st.markdown("**Week-level average**")
+    st.markdown("**Average by Day of Week**")
     gas_wp = gas_weekly_profile(gas_df) if resolution == "Daily" else pd.DataFrame()
     fig_week = make_summary_fig(weekly_profile(electric_df, resolution), gas_wp, resolution)
     fig_week.update_xaxes(tickformat="%a", dtick=86400000)
     st.plotly_chart(fig_week, use_container_width=True)
+
+# Summary results section
+total_elec_co2e = electric_df["co2e_kg"].sum()
+total_gas_co2e = gas_df["co2_kg"].sum() if not gas_df.empty else 0.0
+total_co2e = total_elec_co2e + total_gas_co2e
+
+if not electric_df.empty:
+    elec_daily = electric_df.copy()
+    elec_daily["timestamp"] = elec_daily["timestamp"].dt.tz_convert("America/Los_Angeles")
+    elec_daily["date"] = elec_daily["timestamp"].dt.date
+    elec_daily = elec_daily.groupby("date")["co2e_kg"].sum().reset_index()
+    elec_daily = elec_daily.rename(columns={"co2e_kg": "elec_co2e"})
+else:
+    elec_daily = pd.DataFrame(columns=["date", "elec_co2e"])
+
+if not gas_df.empty:
+    gas_daily = gas_df[["date", "co2_kg"]].copy()
+    gas_daily["date"] = pd.to_datetime(gas_daily["date"]).dt.date
+    merged = pd.merge(elec_daily, gas_daily, on="date", how="outer").fillna(0)
+else:
+    merged = elec_daily.copy()
+    merged["co2_kg"] = 0.0
+merged["total"] = merged["elec_co2e"] + merged["co2_kg"]
+
+top_days = merged.nlargest(
+    min(TOP_N_DAYS, len(merged)),
+    "total"
+).sort_values("total", ascending=True)
+top_days_labels = [str(d) for d in top_days["date"]]
+top_days_positions = list(range(len(top_days)))
+
+col_summary, col_top_days = st.columns(2)
+
+with col_summary:
+    st.metric("Total CO\u2082e emitted", f"{total_co2e:,.1f} kg")
+
+    donut_labels, donut_values, donut_colors = [], [], []
+    if not gas_df.empty and total_gas_co2e > 0:
+        donut_labels.append("Gas")
+        donut_values.append(total_gas_co2e)
+        donut_colors.append("#d30000")
+    if not electric_df.empty and total_elec_co2e > 0:
+        donut_labels.append("Electric")
+        donut_values.append(total_elec_co2e)
+        donut_colors.append("black")
+
+    fig_donut = go.Figure(go.Pie(
+        labels=donut_labels,
+        values=donut_values,
+        hole=0.5,
+        marker=dict(colors=donut_colors),
+        sort=False,
+        hovertemplate=(
+            "%{percent} from %{label}<br>"
+            "%{value:.2f} kg"
+        ),
+        textfont_size=15,
+    ))
+    fig_donut.update_traces(textinfo='percent+label')
+    fig_donut.update_layout(
+        height=330,
+        font=dict(color="black"),
+        showlegend=False,
+        margin=dict(t=20, b=20, l=20, r=20),
+    )
+    st.plotly_chart(fig_donut, use_container_width=True)
+
+with col_top_days:
+    st.markdown(f"**Days with highest total CO\u2082e**")
+    fig_top_days = go.Figure()
+    if not electric_df.empty:
+        fig_top_days.add_trace(go.Bar(
+            y=top_days_positions,
+            x=top_days["elec_co2e"],
+            name="Electric CO\u2082e (kg)",
+            orientation="h",
+            marker_color="black",
+        ))
+    if not gas_df.empty:
+        fig_top_days.add_trace(go.Bar(
+            y=top_days_positions,
+            x=top_days["co2_kg"],
+            name="Gas CO\u2082 (kg)",
+            orientation="h",
+            marker_color="#d30000",
+        ))
+    fig_top_days.update_layout(
+        barmode="stack",
+        height=390,
+        font=dict(color="black"),
+        xaxis_title="CO\u2082e (kg)",
+        yaxis=dict(tickmode="array", tickvals=top_days_positions, ticktext=top_days_labels),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(t=40, b=40, l=80, r=20),
+    )
+    fig_top_days.update_layout(legend_traceorder="grouped+reversed", font=dict(color="black"))
+    fig_top_days.update_xaxes(
+        tickfont=dict(color="black"),
+        title_font=dict(color="black"),
+        showgrid=True,
+        gridcolor="rgba(0,0,0,0.12)",
+    )
+    fig_top_days.update_yaxes(
+        tickfont=dict(color="black"),
+        title_font=dict(color="black")
+    )
+    st.plotly_chart(fig_top_days, use_container_width=True)
+
+# --- Load Shifting Analysis ---
+st.divider()
+st.subheader("Load Shifting Analysis")
+
+
+@st.cache_data
+def _run_load_shift_optimization(demand, intensity, budget_fraction, max_shift_hours):
+    return optimize_demand(demand, intensity, budget_fraction=budget_fraction, max_shift_hours=max_shift_hours)
+
+
+if not electric_df.empty:
+    col_ls1, col_ls2 = st.columns(2)
+    with col_ls1:
+        budget_percent = st.number_input(
+            "Percent of electricity usage that can be shifted",
+            min_value=0,
+            max_value=50,
+            value=15,
+            step=1,
+            help="Number between 0 and 50",
+            width=300,
+        )
+        max_shift = st.number_input(
+            "Maximum hours by which load can be shifted",
+            min_value=1,
+            max_value=8,
+            value=5,
+            step=1,
+            help="Integer between 1 and 8",
+            width=300,
+        )
+
+    hourly = aggregate_electric(electric_df, "Hourly")
+    demand = hourly["kwh"].fillna(0).values
+    intensity = hourly["emissions_factor_kg_per_kwh"].fillna(0).values
+
+    with st.spinner("Running load shift optimization..."):
+        result = _run_load_shift_optimization(
+            demand,
+            intensity,
+            budget_fraction=int(budget_percent) / 100,
+            max_shift_hours=int(max_shift),
+        )
+
+    with col_ls2:
+        st.metric(
+            "CO\u2082e savings",
+            f"{result.reduction_percent:.1f}% ({result.reduction_absolute:.2f} kg)",
+        )
+
+    opt_demand = result.optimized_demand
+    timestamps = hourly["timestamp"]
+
+    # Stacked bar segments for Row 1:
+    #   bottom (light blue) = min(actual, optimized) — the "unchanged" portion
+    #   white cap           = max(0, actual - optimized) — demand shifted away
+    #   gray extension      = max(0, optimized - actual) — demand shifted in
+    bar_bottom      = [float(min(demand[i], opt_demand[i])) for i in range(len(demand))]
+    removal_overlay   = [float(max(0.0, demand[i] - opt_demand[i])) for i in range(len(demand))]
+    addition_overlay    = [float(max(0.0, opt_demand[i] - demand[i])) for i in range(len(demand))]
+    # Per-bar border width: 0 for zero-height bars so no hairline artifacts
+    white_widths    = [1.0 if demand[i] > opt_demand[i] else 0.0 for i in range(len(demand))]
+    # gray_widths     = [1.0 if opt_demand[i] > demand[i] else 0.0 for i in range(len(demand))]
+
+    actual_emissions = demand * intensity
+    optimized_emissions = opt_demand * intensity
+    emissions_delta = optimized_emissions - actual_emissions
+    delta_colors = ["#d62728" if d > 0 else "#2ca02c" for d in emissions_delta]
+
+    fig_opt = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.15,
+        subplot_titles=("Optimized Load & Carbon Intensity", "Hourly Emissions Change (kg CO\u2082e)"),
+        specs=[[{"secondary_y": True}], [{"secondary_y": False}]],
+    )
+    fig_opt.add_trace(
+        go.Bar(x=timestamps, y=bar_bottom, name="Actual Electricity (kWh)",
+               marker=dict(color="#aec7e8"), legendrank=1, legend="legend"),
+        row=1, col=1, secondary_y=False,
+    )
+    fig_opt.add_trace(
+        go.Bar(x=timestamps, y=removal_overlay, name="Reduced Load (kWh)",
+               marker=dict(color="white", line=dict(color="black", width=white_widths),
+                           pattern=dict(shape="/", fgcolor="gray", solidity=0.15)),
+               legendrank=3, legend="legend"),
+        row=1, col=1, secondary_y=False,
+    )
+    fig_opt.add_trace(
+        go.Bar(x=timestamps, y=addition_overlay, name="Added Load (kWh)",
+               marker=dict(color="#919191"),
+               legendrank=4, legend="legend"),
+        row=1, col=1, secondary_y=False,
+    )
+    fig_opt.add_trace(
+        go.Scatter(x=timestamps, y=intensity,
+                   name="Carbon Intensity (kg CO\u2082e/kWh)",
+                   line=dict(color="green"), mode="lines",
+                   legendrank=2, legend="legend"),
+        row=1, col=1, secondary_y=True,
+    )
+    fig_opt.add_trace(
+        go.Bar(x=timestamps, y=emissions_delta,
+               name="Emissions Change (kg CO\u2082e)",
+               marker_color=delta_colors, showlegend=False),
+        row=2, col=1,
+    )
+    fig_opt.add_hline(y=0, line=dict(color="black", width=1.5), row=2, col=1)
+    fig_opt.update_yaxes(title_text="kWh", row=1, col=1, secondary_y=False)
+    fig_opt.update_yaxes(title_text="kg CO\u2082e/kWh", row=1, col=1, secondary_y=True)
+    fig_opt.update_yaxes(title_text="kg CO\u2082e", row=2, col=1)
+    fig_opt.update_xaxes(
+        tickfont=dict(color="black"), title_font=dict(color="black"),
+        showgrid=True, gridcolor="rgba(0,0,0,0.12)",
+    )
+    fig_opt.update_yaxes(tickfont=dict(color="black"), title_font=dict(color="black"))
+    fig_opt.update_layout(
+        barmode="stack",
+        height=700,
+        hovermode="x unified",
+        font=dict(color="black"),
+        legend=dict(orientation="h", yanchor="top", y=0.56, xanchor="center", x=0.5),
+    )
+    fig_opt.update_xaxes(hoverformat="%a %b %d, %Y %H:%M")
+    st.plotly_chart(fig_opt, use_container_width=True)
+
+    # Summary plots: electricity usage change by hour of day and by day of week
+    demand_delta = opt_demand - demand
+
+    usage_df = pd.DataFrame({
+        "hour": timestamps.dt.hour.values,
+        "delta": demand_delta,
+    })
+
+    hod_delta = usage_df.groupby("hour")["delta"].sum().reindex(range(24), fill_value=0.0)
+
+    affected_indices = set()
+    for swap in result.swaps:
+        affected_indices.add(swap.hour_i)
+        affected_indices.add(swap.hour_j)
+
+    dow_kwh = [0.0] * 7
+    for idx in affected_indices:
+        dow_kwh[timestamps.iloc[idx].dayofweek] += abs(demand_delta[idx])
+
+    total_kwh_shifted = sum(dow_kwh) or 1.0
+    dow_pct = [kwh / total_kwh_shifted * 100 for kwh in dow_kwh]
+    dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    fig_hod = go.Figure()
+    fig_hod.add_trace(go.Bar(
+        x=list(range(24)), y=hod_delta.values,
+        marker_color="#aec7e8",
+        name="Usage Change (kWh)",
+    ))
+    fig_hod.add_hline(y=0, line=dict(color="black", width=1.5))
+    fig_hod.update_layout(
+        title="Electricity Usage Change by Hour of Day",
+        xaxis_title="Hour of Day",
+        yaxis_title="kWh",
+        xaxis=dict(tickmode="linear", tick0=0, dtick=1,
+                   tickfont=dict(color="black"), title_font=dict(color="black"),
+                   showgrid=True, gridcolor="rgba(0,0,0,0.12)"),
+        yaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black")),
+        font=dict(color="black"),
+        showlegend=False,
+    )
+
+    fig_dow = go.Figure()
+    fig_dow.add_trace(go.Bar(
+        x=dow_names, y=dow_pct,
+        marker_color="black",
+        name="% of kWh Shifted",
+    ))
+    fig_dow.update_layout(
+        title="Shifted Load by Day of Week",
+        xaxis_title="Day of Week",
+        yaxis_title="% of Total kWh Shifted",
+        xaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black"),
+                   showgrid=True, gridcolor="rgba(0,0,0,0.12)"),
+        yaxis=dict(tickfont=dict(color="black"), title_font=dict(color="black"),
+                   range=[0, max(dow_pct) * 1.15 if any(dow_pct) else 10]),
+        font=dict(color="black"),
+        showlegend=False,
+    )
+
+    col_sum1, col_sum2 = st.columns(2)
+    with col_sum1:
+        st.plotly_chart(fig_hod, use_container_width=True)
+    with col_sum2:
+        st.plotly_chart(fig_dow, use_container_width=True)
+
+else:
+    st.info("Upload electric usage data to see load shifting analysis.")
