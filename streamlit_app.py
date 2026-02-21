@@ -228,7 +228,7 @@ if electric_df.empty and gas_df.empty:
 # --- Resolution toggle ---
 resolution = st.radio("Time resolution", ["15 min", "Hourly", "Daily"], horizontal=True)
 
-st.subheader(f"kg CO\u2082e emitted, {resolution.lower()} resolution")
+st.subheader(f"CO\u2082e emissions profile")
 
 # --- Aggregate electric data ---
 def aggregate_electric(df: pd.DataFrame, res: str) -> pd.DataFrame:
@@ -485,10 +485,15 @@ st.plotly_chart(fig, use_container_width=True)
 col_daily, col_weekly = st.columns(2)
 
 with col_daily:
-    st.markdown("**Day-level average**")
-    fig_day = make_summary_fig(daily_profile(electric_df, resolution), pd.DataFrame(), resolution)
-    fig_day.update_xaxes(tickformat="%H:%M")
-    st.plotly_chart(fig_day, use_container_width=True)
+    if resolution == "Daily":
+        st.info(
+            "Choose a different time resolution to show day-level averages."
+        )
+    else:
+        st.markdown("**Day-level average**")
+        fig_day = make_summary_fig(daily_profile(electric_df, resolution), pd.DataFrame(), resolution)
+        fig_day.update_xaxes(tickformat="%H:%M")
+        st.plotly_chart(fig_day, use_container_width=True)
 
 with col_weekly:
     st.markdown("**Week-level average**")
