@@ -300,9 +300,9 @@ fig.update_layout(
     height=700,
     hovermode="x unified",
     font=dict(color="black"),
-    margin=dict(b=60),
+    margin=dict(b=80),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    legend2=dict(orientation="h", yanchor="top", y=-0.05, xanchor="center", x=0.5, font=dict(size=14)),
+    legend2=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5, font=dict(size=14)),
 )
 if resolution == "Daily":
     fig.update_xaxes(hoverformat="%a %b %d, %Y")
