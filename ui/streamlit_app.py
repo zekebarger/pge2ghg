@@ -8,7 +8,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 import json
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import requests
@@ -446,8 +445,8 @@ st.subheader("Load Shifting Analysis")
 
 @st.cache_data
 def _run_load_shift_optimization(
-    demand: np.ndarray,
-    intensity: np.ndarray,
+    demand,
+    intensity,
     budget_fraction: float,
     max_shift_hours: int,
 ) -> OptimizationResult:
