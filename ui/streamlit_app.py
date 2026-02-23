@@ -302,7 +302,7 @@ fig.update_layout(
     font=dict(color="black"),
     margin=dict(b=60),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    legend2=dict(orientation="h", yanchor="top", y=-0.05, xanchor="center", x=0.5),
+    legend2=dict(orientation="h", yanchor="top", y=-0.05, xanchor="center", x=0.5, font=dict(size=14)),
 )
 if resolution == "Daily":
     fig.update_xaxes(hoverformat="%a %b %d, %Y")
@@ -524,7 +524,8 @@ if not electric_df.empty:
     )
     fig_opt.add_trace(
         go.Bar(x=timestamps, y=bar_bottom, name="Actual Electricity (kWh)",
-               marker=dict(color="#aec7e8"), legendrank=1, legend="legend"),
+               marker=dict(color="#aec7e8"), legendrank=1, legend="legend",
+               hoverinfo="skip"),
         row=1, col=1, secondary_y=False,
     )
     fig_opt.add_trace(
