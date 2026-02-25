@@ -8,7 +8,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 import json
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import requests
@@ -300,9 +299,9 @@ fig.update_layout(
     height=700,
     hovermode="x unified",
     font=dict(color="black"),
-    margin=dict(b=60),
+    margin=dict(b=80),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    legend2=dict(orientation="h", yanchor="top", y=-0.05, xanchor="center", x=0.5),
+    legend2=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5, font=dict(size=14)),
 )
 if resolution == "Daily":
     fig.update_xaxes(hoverformat="%a %b %d, %Y")
@@ -446,8 +445,8 @@ st.subheader("Load Shifting Analysis")
 
 @st.cache_data
 def _run_load_shift_optimization(
-    demand: np.ndarray,
-    intensity: np.ndarray,
+    demand,
+    intensity,
     budget_fraction: float,
     max_shift_hours: int,
 ) -> OptimizationResult:
@@ -524,7 +523,8 @@ if not electric_df.empty:
     )
     fig_opt.add_trace(
         go.Bar(x=timestamps, y=bar_bottom, name="Actual Electricity (kWh)",
-               marker=dict(color="#aec7e8"), legendrank=1, legend="legend"),
+               marker=dict(color="#aec7e8"), legendrank=1, legend="legend",
+               hoverinfo="skip"),
         row=1, col=1, secondary_y=False,
     )
     fig_opt.add_trace(

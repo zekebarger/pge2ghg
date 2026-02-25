@@ -10,7 +10,6 @@ import os
 import pathlib
 
 import pandas as pd
-import requests
 import streamlit as st
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
@@ -63,26 +62,15 @@ def _merge_api_response(data: dict) -> None:
 
 def _load_example_files() -> None:
     """Load bundled March 2024 example CSVs and merge them into session state."""
-    _data_dir = pathlib.Path(__file__).parent / "data"
-    example_files = [
-        "mar_2024_electric_example.csv",
-        "mar_2024_gas_example.csv",
-    ]
-    for filename in example_files:
-        filepath = _data_dir / filename
-        file_bytes = filepath.read_bytes()
-        file_id = f"{filename}:{len(file_bytes)}"
-        if file_id in st.session_state.processed_files:
-            continue
-        with st.spinner(f"Loading {filename}..."):
-            try:
-                resp = requests.post(
-                    f"{API_URL}/process_auto",
-                    files={"file": (filename, file_bytes, "text/csv")},
-                    timeout=API_TIMEOUT,
-                )
-                resp.raise_for_status()
-                _merge_api_response(resp.json())
-                st.session_state.processed_files.add(file_id)
-            except Exception as e:
-                st.error(f"Error loading example file {filename}: {e}")
+    with st.spinner(f"Loading example files..."):
+        _data_dir = pathlib.Path(__file__).parent / "data"
+
+        for file in [("example_electric.csv", True), ("example_gas.csv", False)]:
+            df = pd.read_csv(_data_dir / file[0])
+            if file[1]:
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                st.session_state.electric_df = df.sort_values("timestamp").reset_index(drop=True)
+            else:
+                df["date"] = pd.to_datetime(df["date"])
+                st.session_state.gas_df = df.sort_values("date").reset_index(drop=True)
+            st.session_state.processed_files.add(file[0])

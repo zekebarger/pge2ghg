@@ -1,7 +1,7 @@
 .venv/
 data/*.csv
-!data/mar_2024_electric_example.csv
-!data/mar_2024_gas_example.csv
+!data/example_electric.csv
+!data/example_gas.csv
 .env
 .git/
 .gitignore
