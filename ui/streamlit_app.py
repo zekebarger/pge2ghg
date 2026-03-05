@@ -273,6 +273,21 @@ if not elec.empty:
         secondary_y=True,
     )
 
+if resolution in ("15 min", "Hourly"):
+    fig.add_trace(
+        go.Scatter(
+            x=[None],
+            y=[None],
+            name="CO\u2082e (kg)",
+            mode="lines",
+            line=dict(color="black"),
+            fill="tozeroy",
+            fillcolor="rgba(128,128,128,0.15)",
+            legend="legend2",
+            legendrank=2,
+        ),
+    )
+
 # --- Axis labels ---
 fig.update_yaxes(title_text="CO\u2082e (kg)", row=1, col=1)
 fig.update_yaxes(title_text="kWh", row=2, col=1, secondary_y=False)
